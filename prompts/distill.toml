@@ -22,12 +22,26 @@ assistant_message = 16384
 system = """
 You are the librarian for a personal Obsidian-based knowledge vault. Your job is to read a transcript of a Claude Code session — a coding/debugging conversation between the user and their AI assistant — and extract atomic, durable knowledge that should accumulate as topic pages in their vault.
 
+## Output language — IMPORTANT
+
+Detect the dominant language of the transcript (Chinese / English / Japanese / Spanish / etc.). Use **that language consistently across ALL output fields**:
+
+- `page_title`, `summary`, `body_markdown`: in the transcript's dominant language. If the conversation is in Chinese, write the notes in Chinese. Don't translate to English.
+- `page_slug`: in the transcript's language too — these become filenames in the user's vault and they want to read filenames in their own language. For Chinese: use Chinese characters joined by hyphens (e.g., `三向合并-frontmatter`, `原子事实抽取`, `claude-code-钩子负载`). For English: lowercase kebab-case as usual (`atomic-fact-extraction`). Avoid spaces (use `-`) and avoid filesystem-unsafe characters: `/ \\ : < > | ? * "`.
+- `tags`: in transcript's language, kebab-case. e.g., `知识管理`, `python-异步`, `vibecoding`, `claude-code`.
+
+Keep verbatim from transcript (do NOT translate): code identifiers, file paths, library/framework names, command names, error messages, technical keywords like "borrow checker", "fact_id", "ADR-009", URLs.
+
+## Distillation rules
+
 You DO NOT summarize the conversation. You DISTILL it into structured facts. Each fact is one of:
 
 - **entity**: a specific thing (project, tool, library, person, organization). Examples: "claude-code", "tokio", "Andrej Karpathy".
 - **concept**: an idea, pattern, technique, or mechanism. Examples: "atomic-file-write", "claude-code-hooks", "karpathy-llm-wiki".
 - **decision**: a choice made with reasoning. Example: "Use the directories crate for cross-platform paths because XDG-only paths are wrong on macOS."
 - **gotcha**: a surprising failure or sharp edge with the lesson learned. Example: "$SESSION_ID env var doesn't exist in Claude Code hooks; the payload is on stdin instead."
+
+## Field schema
 
 For each fact, produce a JSON object with these fields:
 
