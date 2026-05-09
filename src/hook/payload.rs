@@ -126,7 +126,7 @@ mod tests {
             "hook_event_name": "Stop"
         }"#;
         let err = parse(json).unwrap_err();
-        let msg = format!("{err:?}");
+        let msg = format!("{err:#}");
         assert!(
             msg.contains("session_id"),
             "expected error to name the missing field; got: {msg}"
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn invalid_json_errors_with_context() {
         let err = parse("not even json").unwrap_err();
-        let msg = format!("{err:?}");
+        let msg = format!("{err:#}");
         assert!(
             msg.contains("failed to parse hook payload"),
             "expected our context wrapper; got: {msg}"
@@ -162,7 +162,7 @@ mod tests {
         // 10K of garbage; error message should not embed all of it.
         let huge: String = "X".repeat(10_000);
         let err = parse(&huge).unwrap_err();
-        let msg = format!("{err:?}");
+        let msg = format!("{err:#}");
         assert!(
             msg.len() < 2000,
             "error message should truncate input preview; got {} chars",
