@@ -1,0 +1,17 @@
+{
+  "name": "alluvium",
+  "owner": {
+    "name": "Eric",
+    "url": "https://github.com/Tespera"
+  },
+  "plugins": [
+    {
+      "name": "alluvium",
+      "source": "./plugins/alluvium",
+      "description": "Auto-archive Claude Code sessions to your Obsidian vault as a Karpathy-style LLM wiki.",
+      "version": "0.1.0",
+      "homepage": "https://github.com/Tespera/alluvium",
+      "license": "MIT OR Apache-2.0"
+    }
+  ]
+}
