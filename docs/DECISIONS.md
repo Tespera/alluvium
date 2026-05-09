@@ -314,3 +314,205 @@ CLI 用 clap 的 `Option<String>` 表达，运行时根据是否提供切换。
 - 让用户在 plugin.json 里写 jq 表达式：把字符串模板暴露给用户编辑，反人类
 
 **When to revisit**: 如果 Claude Code 后续改用其他传递机制（极不可能短期发生）。
+
+---
+
+## ADR-012: Prompt 是事实抽取器，不是笔记生成器
+
+**Status**: Accepted (2026-05-09)
+
+**Context**: distiller prompt 有两种风格——
+
+1. "把 transcript 蒸馏成一篇 markdown 笔记"（LLM 直接产出最终内容）
+2. "从 transcript 抽出原子事实清单"（LLM 产出结构化 fact，code 决定排版到 topic 页）
+
+风格 1 更直接，但 merge 时无法精确去重（用户改了一段话怎么定位"对应的旧版本"？）。
+风格 2 复杂一点，但每个 fact 有 stable id（[ADR-014](#adr-014)），merge 时定位精准。
+
+**Decision**: 用风格 2。LLM 产出原子事实，每个事实包含 `page_slug`（topic 页定位）、`page_title`、`summary`、`body_markdown`、`relations`、`type` ∈ {entity, concept, decision, gotcha}、`confidence`。code 拼装最终页面。
+
+**Why**:
+1. **Merge 精度**：原子 fact + stable id → 精确替换 ADR-009 的 HTML 注释段
+2. **跨 session 累积**：同一 topic 页累积多次 session 抽出的 fact，每个 fact 独立可追溯
+3. **多 recipe 同 schema**：minimalist / dev-journal / verbose 共享 ExtractedFact 结构，区别在 prompt style guide + 字段长度上限
+4. **可测试性**：parser 验 schema、merger 验 id 行为、prompt 单独测渲染——三层独立单元测试
+
+**Recipe 差异**（不在 schema 层，在 prompt style + budget 层）：
+
+| | minimalist | dev-journal（默认） | verbose |
+|---|---|---|---|
+| 风格指引 | 陈述句、决定/结论 only | 第一人称过去式叙事 | pedagogical 全文 |
+| 每 fact 字数上限 | ~400 | ~1200 | ~4000 |
+| 每 session 最多 fact 数 | 5 | 12 | 20 |
+| 含代码片段 | 否 | 否 | 是 |
+
+**Trade-offs accepted**:
+- LLM 产出 JSON 比产出 markdown 略更难（schema 约束 + JSON 转义）。给定 Haiku 4.5 的能力，可接受
+- prompt 复杂度提升（要明确说 "你是图书馆员、产 fact 不写笔记"）
+- code 端要写 fact → 页面的渲染层
+
+**Alternatives considered**:
+- 风格 1（LLM 直接写笔记）：merge 时退化到"全段替换"，丢失用户手改
+- structured output via tool use：Anthropic API 有 `tools` 参数能强约束输出，但增加 prompt 工程量；v0.1 用普通 JSON 输出 + parser 容错就够
+
+**When to revisit**: 如果 LLM 产 JSON 出错率 > 5%，考虑切换到 tool-use 强约束。
+
+---
+
+## ADR-013: LLM 输出 JSON Schema
+
+**Status**: Accepted (2026-05-09)
+
+**Context**: ADR-012 决定 prompt 是事实抽取器。但 fact 的具体字段、容错策略、版本兼容需要锁死。
+
+**Decision**: 顶层响应 schema：
+
+```json
+{
+  "title": "session 简短人读标题",
+  "tags": ["3-7 个主题标签"],
+  "extracted": [ /* ExtractedFact, ... */ ]
+}
+```
+
+每个 `ExtractedFact`：
+
+```json
+{
+  "type": "concept" | "entity" | "decision" | "gotcha",
+  "page_slug": "kebab-case-canonical-name",
+  "page_title": "Human Title",
+  "summary": "1-3 句核心断言",
+  "body_markdown": "2-6 段 freeform markdown",
+  "relations": {
+    "uses": ["other-slug"],
+    "used-by": ["other-slug"],
+    "related": ["other-slug"],
+    "supersedes": []
+  },
+  "confidence": 0.85
+}
+```
+
+**字段说明**：
+- `type`：决定写到 `wiki/concepts/` 还是 `wiki/entities/`（decision/gotcha 归到最相关的 concept 或 entity 页）
+- `page_slug`：dedup key、URL-friendly、wikilink 的 anchor
+- `summary`：进 `log.md` 的一句话；merge 时是 fact id 哈希输入
+- `body_markdown`：进 topic 页 HTML 注释段内的内容
+- `relations`：典型化链接（4 类）
+- `confidence`：0.0-1.0，< 0.5 警告 log + 仍写入
+
+**容错策略**：
+- 顶层 schema 错（`extracted` 不是数组、JSON 解析失败）→ **整个 archive 失败**，归档日志留错
+- `extracted` 数组里某条 fact 字段缺失 → **丢这条**，继续处理其他
+- LLM 返回 schema 外字段 → 静默忽略（forward-compat）
+- `confidence < 0.5` → 警告但保留
+
+**v0.1 故意省掉的字段**：
+- `evidence: [{from_message_index, snippet}]`：好特性但增 token 成本，留 v0.2
+
+**Why 这套 schema**：
+1. 每字段都有用途，没有摆设
+2. 类型枚举 4 类够用（再细分增加 prompt 决策负担）
+3. relations 4 类（uses/used-by/related/supersedes）是 typed-relations 的最小有用集，超越 Karpathy 原版的裸 wikilink
+
+**Alternatives considered**:
+- 把 evidence 加进 v0.1：放弃，token 成本不值
+- 多枚举 type（如 method / pattern / library）：放弃，4 类已经覆盖 90% case
+- 用 tool use 强约束 schema：参见 ADR-012
+
+**When to revisit**: 当用户报告"我想根据某条 fact 反查原 transcript"——届时加 evidence 字段。
+
+---
+
+## ADR-014: fact_id 算法 + frontmatter 三向合并
+
+**Status**: Accepted (2026-05-09)
+
+**Context**: ADR-009 钉了"HTML 注释段标记"的方向，但留了两个细节没定：
+1. fact_id 怎么算？
+2. frontmatter 字段属主怎么界定，merge 时如何处理用户改动？
+
+**Decision**:
+
+### fact_id
+
+```rust
+let normalized = summary
+    .to_lowercase()
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ");
+let input: String = format!("{page_slug}:{normalized}").chars().take(80).collect();
+let hash = sha256(input.as_bytes());
+let id = &hex_lowercase(hash)[..8];
+```
+
+- **sha256[:8]**：32 位 entropy，单 vault 几千 facts 时碰撞 ~0.0001%
+- **normalize summary**：小写化 + 折叠空白 + 截前 80 字符。让 LLM 微调措辞时仍命中已有 fact
+- **why sha256 而非 sha1**：sha1 在密码学语境淘汰；非密码用途也用现代算法是好习惯
+
+### frontmatter 属主 + 三向合并
+
+每个 topic 页 frontmatter 含一个 `_alluvium.last_written` 影子拷贝，merge 时三向 diff：
+
+```yaml
+title: Claude Code Hooks
+type: concept
+tags: [hooks, claude-code, my-custom-tag]   # 用户可见
+created: 2026-04-15
+updated: 2026-05-09
+sources: [...]
+relations:
+  uses: [...]
+_alluvium:
+  schema_version: 1
+  last_written:                              # Alluvium 上次写入的快照
+    tags: [hooks, claude-code]
+    relations:
+      uses: [...]
+    sources: [...]
+```
+
+**列表型字段三向合并**（`tags`、`relations.{uses,used-by,related,supersedes}`、`sources`）：
+
+```
+S = _alluvium.last_written.{field}      # Alluvium 上次写的
+C = 当前文件的 {field}                   # 用户可能改过
+A = Alluvium 这次想写的（LLM 抽出）
+
+user_added   = C - S   （用户加的项）
+user_removed = S - C   （用户删的项）
+
+merged = (A ∪ user_added) ∖ user_removed
+```
+
+**字段属主细则**：
+
+| 字段 | 行为 |
+|---|---|
+| `tags` | 三向合并 |
+| `relations.uses` / `used-by` / `related` / `supersedes` | 三向合并（每子列表独立） |
+| `sources` | 三向合并 |
+| `created` | 第一次写定，永不改 |
+| `updated` | 每次 merge 重写为当前时间 |
+| `title` / `type` | Alluvium 覆盖（用户想改用文件名 rename） |
+| `_alluvium.*` | Alluvium 全权管理 |
+| **任何其他字段**（`priority`、`status`、`aliases`、`user_tags` 等） | **完全保留**，Alluvium 永不动 |
+
+**Why 自带影子（在 frontmatter 里）而非外部 cache**：
+
+- vault 是可移植的（用户用 iCloud / Syncthing 多机同步）；merge 状态应跟 vault 走
+- 用户清 `<data>/`、换机器、备份恢复都不影响 merge 正确性
+- 透明：用户能看到"Alluvium 记得我上次写了啥"，调试友好
+
+**Trade-off 接受**：
+- frontmatter 视觉膨胀 2x。`_` 前缀走 Obsidian 的"内部字段"惯例，properties 面板可折叠
+- 加一个字段就要更新 last_written → 写盘体积稍大，可忽略
+
+**Alternatives considered**:
+- "只增不减"：体验差，用户删 tag 后下次会被加回来。弃
+- 外部 cache file `<data>/last-frontmatter/<slug>.yaml`：vault 不可移植
+- 两套 tags 字段（`tags` + `alluvium_tags`）：Obsidian 不识别第二套，graph view 跑偏
+
+**When to revisit**: 如果 frontmatter 视觉膨胀引起用户抱怨，考虑改成外部 cache + 接受不可移植性，或加 frontmatter 折叠功能。
