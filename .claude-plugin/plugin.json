@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Auto-archive Claude Code sessions to your Obsidian vault as a Karpathy-style LLM wiki.",
   "author": "Eric",
-  "homepage": "https://github.com/eepierslester77/alluvium",
+  "homepage": "https://github.com/Tespera/alluvium",
   "license": "MIT OR Apache-2.0",
   "hooks": [
     {
