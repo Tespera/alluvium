@@ -43,16 +43,16 @@ pub fn extract(events: &[Event]) -> Result<SessionMetadata> {
 
     let session_id = events
         .iter()
-        .find_map(event_session_id)
+        .find_map(|e| e.session_id())
         .ok_or_else(|| anyhow::anyhow!("no event in transcript has a sessionId"))?
         .to_string();
 
-    let cwd = events.iter().find_map(event_cwd).map(PathBuf::from);
+    let cwd = events.iter().find_map(|e| e.cwd()).map(PathBuf::from);
 
     let mut started_at: Option<DateTime<Utc>> = None;
     let mut ended_at: Option<DateTime<Utc>> = None;
     for event in events {
-        if let Some(ts_str) = event_timestamp(event) {
+        if let Some(ts_str) = event.timestamp() {
             match parse_iso(ts_str) {
                 Ok(ts) => {
                     started_at = Some(started_at.map_or(ts, |s| s.min(ts)));
@@ -109,42 +109,6 @@ pub fn extract(events: &[Event]) -> Result<SessionMetadata> {
         output_tokens,
         event_count: events.len(),
     })
-}
-
-fn event_session_id(event: &Event) -> Option<&str> {
-    match event {
-        Event::User(c) | Event::Assistant(c) => Some(&c.envelope.session_id),
-        Event::System(s) => Some(&s.envelope.session_id),
-        Event::Attachment(a) => Some(&a.envelope.session_id),
-        Event::FileHistorySnapshot(fhs) => fhs.session_id.as_deref(),
-        Event::LastPrompt(lp) => Some(&lp.session_id),
-        Event::PermissionMode(pm) => Some(&pm.session_id),
-        Event::PrLink(pr) => Some(&pr.session_id),
-        Event::QueueOperation(qo) => Some(&qo.session_id),
-    }
-}
-
-fn event_cwd(event: &Event) -> Option<&str> {
-    match event {
-        Event::User(c) | Event::Assistant(c) => c.envelope.cwd.as_deref(),
-        Event::System(s) => s.envelope.cwd.as_deref(),
-        Event::Attachment(a) => a.envelope.cwd.as_deref(),
-        // Bookkeeping events lack envelope.
-        _ => None,
-    }
-}
-
-fn event_timestamp(event: &Event) -> Option<&str> {
-    match event {
-        Event::User(c) | Event::Assistant(c) => c.envelope.timestamp.as_deref(),
-        Event::System(s) => s.envelope.timestamp.as_deref(),
-        Event::Attachment(a) => a.envelope.timestamp.as_deref(),
-        Event::FileHistorySnapshot(fhs) => fhs.timestamp.as_deref(),
-        Event::LastPrompt(lp) => lp.timestamp.as_deref(),
-        Event::PermissionMode(pm) => pm.timestamp.as_deref(),
-        Event::PrLink(pr) => pr.timestamp.as_deref(),
-        Event::QueueOperation(qo) => qo.timestamp.as_deref(),
-    }
 }
 
 fn parse_iso(s: &str) -> Result<DateTime<Utc>> {

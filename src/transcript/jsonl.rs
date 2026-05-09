@@ -56,6 +56,71 @@ pub enum Event {
     QueueOperation(QueueOperation),
 }
 
+impl Event {
+    /// Per-event UUID. `None` for bookkeeping events that don't carry one.
+    pub fn uuid(&self) -> Option<&str> {
+        match self {
+            Event::User(c) | Event::Assistant(c) => c.envelope.uuid.as_deref(),
+            Event::System(s) => s.envelope.uuid.as_deref(),
+            Event::Attachment(a) => a.envelope.uuid.as_deref(),
+            Event::FileHistorySnapshot(_)
+            | Event::LastPrompt(_)
+            | Event::PermissionMode(_)
+            | Event::PrLink(_)
+            | Event::QueueOperation(_) => None,
+        }
+    }
+
+    /// Session id, present on virtually every event.
+    pub fn session_id(&self) -> Option<&str> {
+        match self {
+            Event::User(c) | Event::Assistant(c) => Some(&c.envelope.session_id),
+            Event::System(s) => Some(&s.envelope.session_id),
+            Event::Attachment(a) => Some(&a.envelope.session_id),
+            Event::FileHistorySnapshot(fhs) => fhs.session_id.as_deref(),
+            Event::LastPrompt(lp) => Some(&lp.session_id),
+            Event::PermissionMode(pm) => Some(&pm.session_id),
+            Event::PrLink(pr) => Some(&pr.session_id),
+            Event::QueueOperation(qo) => Some(&qo.session_id),
+        }
+    }
+
+    /// Working directory associated with the event. Bookkeeping events lack envelope.
+    pub fn cwd(&self) -> Option<&str> {
+        match self {
+            Event::User(c) | Event::Assistant(c) => c.envelope.cwd.as_deref(),
+            Event::System(s) => s.envelope.cwd.as_deref(),
+            Event::Attachment(a) => a.envelope.cwd.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// ISO 8601 timestamp string. `None` if the event lacks one.
+    pub fn timestamp(&self) -> Option<&str> {
+        match self {
+            Event::User(c) | Event::Assistant(c) => c.envelope.timestamp.as_deref(),
+            Event::System(s) => s.envelope.timestamp.as_deref(),
+            Event::Attachment(a) => a.envelope.timestamp.as_deref(),
+            Event::FileHistorySnapshot(fhs) => fhs.timestamp.as_deref(),
+            Event::LastPrompt(lp) => lp.timestamp.as_deref(),
+            Event::PermissionMode(pm) => pm.timestamp.as_deref(),
+            Event::PrLink(pr) => pr.timestamp.as_deref(),
+            Event::QueueOperation(qo) => qo.timestamp.as_deref(),
+        }
+    }
+
+    /// True for sub-agent (sidechain) thread events. False for events that
+    /// don't carry the flag (bookkeeping types).
+    pub fn is_sidechain(&self) -> bool {
+        match self {
+            Event::User(c) | Event::Assistant(c) => c.envelope.is_sidechain,
+            Event::System(s) => s.envelope.is_sidechain,
+            Event::Attachment(a) => a.envelope.is_sidechain,
+            _ => false,
+        }
+    }
+}
+
 /// Envelope fields shared by most top-level events.
 ///
 /// Every field except `session_id` is optional because bookkeeping events
