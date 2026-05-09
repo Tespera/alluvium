@@ -1,32 +1,162 @@
-# Customizing Prompts (面向终端用户)
+# Customizing Prompts
 
-> ⚠️ 占位文档。Alluvium v0.1 scaffold 完成、第一份 prompt 模板写好后，本文档会被替换为完整的用户指南。
+Alluvium's distillation behavior is controlled by `*.toml` prompt files in
+`<config>/prompts/` (typically `~/.config/alluvium/prompts/` on Linux,
+`~/Library/Application Support/dev.alluvium.alluvium/prompts/` on macOS).
+You can edit them anytime — Alluvium re-reads them on every archive.
 
-## 计划写什么
+## File layout
 
-1. **prompt 文件在哪、长啥样**——`prompts/distill.toml` / `prompts/merge.toml` / `prompts/classify.toml` / `prompts/recipes/*.toml` 的位置和结构
-2. **怎么加自己的 recipe**——复制现有 recipe 改名、调字段、在 `config.toml` 里引用
-3. **怎么调蒸馏的"详略程度"**——展示 minimalist / dev-journal / verbose 三份 recipe 的关键差异
-4. **怎么改 frontmatter 字段**——`templates/frontmatter.yaml.j2` 的可改区
-5. **怎么改 entity vs concept 分类规则**——distill prompt 里的判定段落
-6. **改完怎么测**——`alluvium dry-run` 用最近一个 session 试效果，不写盘
-7. **改坏了怎么恢复**——`alluvium reset-prompts` 恢复默认（待实现）
-8. **prompt-only 修改 vs 模板修改 vs 配置修改的边界**——什么情况改哪个文件
+```
+<config>/prompts/
+├── distill.toml        # the base prompt — system + user template
+├── merge.toml          # placeholder (not yet used; reserved for v0.2)
+├── classify.toml       # placeholder (not yet used)
+└── recipes/
+    ├── dev-journal.toml    # default: first-person past-tense narrative
+    ├── minimalist.toml     # terse, conclusions only
+    └── verbose.toml        # full pedagogical write-up with code snippets
+```
 
-## 现状
+`alluvium init` populates this directory from compiled-in defaults. If you
+delete a file, re-run `alluvium init` to restore. If you _edit_ a file,
+init won't overwrite your changes.
 
-prompt 模板未实现，本文档暂为占位。
+## How recipes work
 
-**触发填充本文档的条件**（任一满足即必须填）：
+A recipe inherits from `distill.toml` and overrides specific things:
 
-- `src/distiller/prompt.rs` 实现完成（用户能 `alluvium dry-run` 看到真实蒸馏输出）
-- `prompts/distill.toml` 的 `[prompt]` 段被填实
-- `alluvium init` 实现完成（用户开始能装 Alluvium）
+```toml
+[meta]
+name = "minimalist"
+description = "..."
+inherits = "default"
+model = "claude-haiku-4-5"   # optional: override base model
 
-填充本文档的 AI 在**同一个 PR/commit 里同时改本文件**，不要拖到下个 PR——本文档落后会让用户开始用却找不到怎么改 prompt，劝退。
+[overrides]
+max_facts_per_session = 5    # cap on number of facts emitted
+max_body_chars = 400         # advisory cap on each fact's body length
 
-CI 不强制检查，但 reviewer 在 merge 前应核对：当上述任一文件被实质性改动时，本文档也有对应更新。
+[prompt_overrides]
+# This is APPENDED to the base system prompt.
+extra_system = """
+RECIPE OVERRIDE — minimalist:
+- Style: terse, conclusions only.
+- ...
+"""
+```
 
-## 注意：HTML 注释段标记
+Pick a recipe in `~/.config/alluvium/config.toml`:
 
-实现 prompt 加载逻辑后，本文档**必须**警告用户：每个 topic 页里 Alluvium 写入的部分由 HTML 注释包裹（`<!-- alluvium:fact id=... -->...<!-- alluvium:end -->`）。**手动删除注释标记**会导致下次 archive 时该段被当成"用户手写"，新版本会被追加在末尾——造成内容重复。详见 [DECISIONS.md ADR-009](DECISIONS.md)。
+```toml
+[default]
+recipe = "minimalist"
+```
+
+## Common customizations
+
+### Change the recipe style
+
+Edit `<config>/prompts/recipes/dev-journal.toml`'s `extra_system` to taste.
+For example, to make Alluvium write in second-person present tense:
+
+```toml
+[prompt_overrides]
+extra_system = """
+RECIPE OVERRIDE — dev-journal (custom):
+- Style: second-person present tense ("you decide to use X").
+- ...
+"""
+```
+
+### Make the LLM produce more / fewer facts
+
+Adjust `max_facts_per_session` in `[overrides]`. The LLM will see this
+constraint in its prompt and try to respect it.
+
+### Switch to Sonnet for higher quality
+
+```toml
+# In recipes/dev-journal.toml or distill.toml
+[meta]
+model = "claude-sonnet-4-6"
+```
+
+Increases cost ~5× but produces longer, more thoughtful body content.
+
+### Tune what gets into the prompt
+
+`[byte_caps]` in `distill.toml` controls how much of each transcript field
+the LLM sees. If you want more detail per turn, raise `tool_result` or
+`assistant_message`:
+
+```toml
+[byte_caps]
+tool_use = 4096
+tool_result = 16384      # was 8192
+user_message = 8192
+assistant_message = 32768  # was 16384
+```
+
+This increases token usage and cost; use only if you've seen distillations
+miss important details from truncated tool outputs.
+
+## ⚠️ Warning: HTML comment markers
+
+Each Alluvium-written paragraph in a topic page is wrapped in:
+
+```markdown
+<!-- alluvium:fact id=abc12345 -->
+... fact body ...
+<!-- alluvium:end -->
+```
+
+**Don't delete these markers.** They're how Alluvium identifies its own
+content for in-place updates (per ADR-009). If you delete them:
+
+- Next archive treats the content as user-written → keeps it.
+- Same archive ALSO appends a fresh copy of that fact → you get duplicates.
+
+If you want to "claim" content as yours and prevent future overwrites,
+**move it outside the markers** (above or below the block). Anything
+outside `<!-- alluvium:fact ... -->` ... `<!-- alluvium:end -->` is left
+alone forever.
+
+## Testing your prompt changes
+
+After editing a prompt or recipe:
+
+```bash
+alluvium dry-run
+```
+
+This re-runs the full distillation on your most recent session but
+prints the resulting JSON to stdout instead of writing to your vault. You
+can iterate quickly without polluting the vault.
+
+Once you're happy, the next real Claude Code session end will use your
+updated prompt automatically.
+
+## Restoring defaults
+
+If you've broken a prompt and want to start over:
+
+```bash
+rm ~/.config/alluvium/prompts/recipes/dev-journal.toml
+alluvium init
+```
+
+`init` will copy the bundled default back into place. (It won't overwrite
+files that exist, so removal first is required.)
+
+## Schema reference
+
+The full TOML schema each prompt file uses lives in
+[`src/distiller/prompt.rs`](../src/distiller/prompt.rs)'s `BaseFile` and
+`RecipeFile` structs. The output JSON schema the LLM is told to produce
+is documented in `prompts/distill.toml`'s system prompt and enforced by
+[`src/distiller/parser.rs`](../src/distiller/parser.rs).
+
+If you change the system prompt's "Output format" section, you may need
+to update the parser too — but for casual style tweaks, the JSON shape
+should stay constant.

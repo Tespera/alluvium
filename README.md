@@ -8,22 +8,32 @@ You don't save your sessions. Your sessions save themselves.
 
 ## Status
 
-🚧 **v0.1 in early scaffolding.** Not yet usable.
+🟡 **v0.1.0 alpha** — end-to-end pipeline functional; manual install.
+Real-world usage feedback welcome. See [`CHANGELOG.md`](CHANGELOG.md) for
+what works and what's deferred to v0.2.
 
-## Quickstart
-
-Once 0.1 ships:
+## Quickstart (v0.1 alpha)
 
 ```bash
-brew install alluvium     # one-time install
-alluvium init             # interactive: vault path, API key, recipe
-                          #   also installs the Claude Code plugin
+# 1. Install (Homebrew formula coming in v0.2; for now build from source)
+git clone https://github.com/Tespera/alluvium
+cd alluvium
+cargo install --path .
+
+# 2. Configure: vault path, recipe, API key
+alluvium init
+
+# 3. Register the Claude Code plugin (init prints this command)
+claude plugin install /path/to/alluvium
+
+# 4. (Optional) Backfill the past week of sessions
+alluvium replay --since 7d
 ```
 
 After that, just keep using Claude Code. Each session ends → distilled
-knowledge appears in your vault. Run `alluvium status` anytime to see what's
-been archived recently. Run `alluvium replay --since 7d` to backfill the past
-week (or `--all` for everything Claude Code has retained).
+knowledge appears in your vault. Run `alluvium status` anytime to see
+what's been archived. Run `alluvium dry-run` to preview the next
+distillation without writing anything.
 
 ## Concept
 
