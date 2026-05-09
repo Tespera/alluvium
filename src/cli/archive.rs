@@ -26,12 +26,28 @@ use crate::config;
 use crate::distiller::{self, DistillerInput, TokenUsage};
 use crate::extraction::ExtractedFact;
 use crate::hook::{lock, payload, self_filter};
+
+/// Set by `ClaudeCliBackend` on the spawned `claude` subprocess. When
+/// archive runs and finds this in its env, it skips immediately — this
+/// breaks the recursion where claude-cli's nested session would itself
+/// trigger the Stop hook.
+const ALLUVIUM_DISTILLING_ENV: &str = "ALLUVIUM_DISTILLING";
 use crate::log::{self as auditlog, ArchiveLogEntry};
 use crate::transcript::{self, ConversationData};
 use crate::vault;
 use crate::wiki;
 
 pub async fn run(session_id_arg: Option<&str>) -> Result<()> {
+    // Recursion guard: when ClaudeCliBackend spawns `claude -p`, the nested
+    // session's Stop hook would land here again — we'd archive ourselves
+    // archiving, infinitely. The backend sets this env var; we no-op.
+    if std::env::var(ALLUVIUM_DISTILLING_ENV).is_ok_and(|v| !v.is_empty()) {
+        tracing::info!(
+            "archive: ALLUVIUM_DISTILLING set; this session is a nested distill call, skipping"
+        );
+        return Ok(());
+    }
+
     let started_at = Utc::now();
 
     let resolved = resolve_session(session_id_arg).await?;
@@ -120,23 +136,26 @@ async fn do_archive(resolved: &ResolvedRun, started_at: DateTime<Utc>) -> Result
     };
 
     // Distill.
-    let api_key = config::secrets::get_api_key()?;
     let prompts_dir = paths::prompts_dir()?;
     let template = distiller::prompt::load(&resolved.config.default.recipe, &prompts_dir)
         .context("loading prompt template")?;
-    let request = distiller::prompt::render(
+    let prompt = distiller::prompt::render(
         &template,
         &DistillerInput {
             conversation: conversation.clone(),
             recipe_name: resolved.config.default.recipe.clone(),
         },
     )?;
-    let client = distiller::client::AnthropicClient::new(api_key);
-    let response = client
-        .messages(request)
+    let backend = distiller::selection::pick(
+        resolved.config.default.backend.as_deref(),
+        resolved.config.default.model.as_deref(),
+    )?;
+    tracing::info!(backend = %backend.kind(), "archive: distilling");
+    let response = backend
+        .complete(&prompt)
         .await
-        .context("calling Anthropic API")?;
-    let output = distiller::parser::parse(&response)?;
+        .context("calling LLM backend")?;
+    let output = distiller::parser::parse(&response.text, response.usage)?;
 
     let alluvium_root = resolved
         .config

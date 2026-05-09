@@ -29,8 +29,18 @@ pub struct ProfileConfig {
     pub alluvium_subdir: String,
     #[serde(default = "default_recipe")]
     pub recipe: String,
-    #[serde(default = "default_model")]
-    pub model: String,
+    /// Model name. Optional — if absent, the chosen backend uses its own
+    /// default ("claude-haiku-4-5" for anthropic, "gpt-4o-mini" for openai,
+    /// etc.). For the claude-cli backend, leaving this `None` means
+    /// Claude Code picks the model based on its own configuration.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// LLM backend. One of: "claude-cli" (default), "anthropic", "openai",
+    /// "deepseek", "gemini". When absent, auto-detected: prefer claude-cli
+    /// if `claude` is on PATH, then fall through env vars in order
+    /// ANTHROPIC → OPENAI → DEEPSEEK → GEMINI.
+    #[serde(default)]
+    pub backend: Option<String>,
     #[serde(default)]
     pub keep_source_summaries: bool,
     #[serde(default)]
@@ -43,7 +53,8 @@ impl Default for ProfileConfig {
             vault_path: PathBuf::new(),
             alluvium_subdir: default_subdir(),
             recipe: default_recipe(),
-            model: default_model(),
+            model: None,
+            backend: None,
             keep_source_summaries: false,
             skip_paths: Vec::new(),
         }
@@ -55,9 +66,6 @@ fn default_subdir() -> String {
 }
 fn default_recipe() -> String {
     "dev-journal".into()
-}
-fn default_model() -> String {
-    "claude-haiku-4-5".into()
 }
 
 /// Resolve the canonical config file path. Returns
@@ -112,7 +120,7 @@ vault_path = "/Users/eric/Vault"
         assert_eq!(cfg.default.vault_path, PathBuf::from("/Users/eric/Vault"));
         assert_eq!(cfg.default.alluvium_subdir, "Alluvium");
         assert_eq!(cfg.default.recipe, "dev-journal");
-        assert_eq!(cfg.default.model, "claude-haiku-4-5");
+        assert_eq!(cfg.default.model, None);
         assert!(!cfg.default.keep_source_summaries);
         assert!(cfg.default.skip_paths.is_empty());
     }
@@ -136,7 +144,7 @@ skip_paths = ["/private", "/tmp"]
         let cfg = load(&path).unwrap();
         assert_eq!(cfg.default.alluvium_subdir, "MyNotes");
         assert_eq!(cfg.default.recipe, "verbose");
-        assert_eq!(cfg.default.model, "claude-sonnet-4-6");
+        assert_eq!(cfg.default.model.as_deref(), Some("claude-sonnet-4-6"));
         assert!(cfg.default.keep_source_summaries);
         assert_eq!(cfg.default.skip_paths.len(), 2);
     }
@@ -186,7 +194,8 @@ vault_path = "/v-work"
                 vault_path: PathBuf::from("/v"),
                 alluvium_subdir: "MyNotes".into(),
                 recipe: "minimalist".into(),
-                model: "claude-haiku-4-5".into(),
+                model: Some("claude-haiku-4-5".into()),
+                backend: Some("claude-cli".into()),
                 keep_source_summaries: true,
                 skip_paths: vec![PathBuf::from("/skip")],
             },

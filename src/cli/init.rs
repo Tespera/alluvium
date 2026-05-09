@@ -82,7 +82,8 @@ pub async fn run() -> Result<()> {
             vault_path: vault_path.clone(),
             alluvium_subdir: subdir.trim().to_string(),
             recipe: recipe.clone(),
-            model: "claude-haiku-4-5".into(),
+            model: None,   // backend's default
+            backend: None, // auto-detect at runtime
             keep_source_summaries: false,
             skip_paths: detect_default_skip_paths(),
         },

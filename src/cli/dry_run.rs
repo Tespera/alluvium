@@ -1,8 +1,6 @@
 //! `alluvium dry-run` — distill the most recent session without writing.
 //!
-//! Runs the full archive pipeline up to the LLM call + parse, then prints
-//! the resulting facts as JSON to stdout instead of writing to the vault.
-//! Useful for testing prompt changes before committing.
+//! Useful for testing prompt or backend changes before committing.
 
 use anyhow::{Context, Result};
 
@@ -13,9 +11,7 @@ use crate::transcript::{self, ConversationData};
 
 pub async fn run() -> Result<()> {
     let cfg = load_config()?;
-    let api_key = config::secrets::get_api_key()?;
 
-    // Find the most recent transcript file under ~/.claude/projects/.
     let transcript_path =
         find_most_recent_transcript().context("locating most recent Claude Code transcript")?;
     eprintln!(
@@ -45,7 +41,7 @@ pub async fn run() -> Result<()> {
                 prompts_dir.display()
             )
         })?;
-    let request = distiller::prompt::render(
+    let prompt = distiller::prompt::render(
         &template,
         &DistillerInput {
             conversation,
@@ -53,11 +49,13 @@ pub async fn run() -> Result<()> {
         },
     )?;
 
-    let client = distiller::client::AnthropicClient::new(api_key);
-    let response = client.messages(request).await?;
-    let output = distiller::parser::parse(&response)?;
+    let backend =
+        distiller::selection::pick(cfg.default.backend.as_deref(), cfg.default.model.as_deref())?;
+    eprintln!("dry-run: using backend '{}'", backend.kind());
 
-    // Print result to stdout as pretty JSON.
+    let response = backend.complete(&prompt).await?;
+    let output = distiller::parser::parse(&response.text, response.usage)?;
+
     let json = serde_json::to_string_pretty(&output)?;
     println!("{json}");
     Ok(())

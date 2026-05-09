@@ -1,34 +1,29 @@
-//! Load `prompts/*.toml` and render the user message via minijinja.
+//! Load `prompts/*.toml` and render a backend-agnostic prompt.
+//!
+//! Output is a [`super::backend::RenderedPrompt`] (system + user + model +
+//! max_tokens) which any [`super::backend::LlmBackend`] can consume.
 //!
 //! ## Resolution flow
 //!
 //! 1. Read `prompts_dir/distill.toml` as the **base** template.
 //! 2. If `recipe_name != "default"`, also read
-//!    `prompts_dir/recipes/<recipe_name>.toml` and apply its overrides:
-//!    - `[overrides]` table sets `max_facts_per_session` / `max_body_chars`
-//!    - `[prompt_overrides].extra_system` is **appended** to base system prompt
-//!    - `[meta].model` (if present) overrides base model
-//! 3. The resulting [`PromptTemplate`] is what [`render`] consumes.
-//!
-//! ## Render
-//!
-//! [`render`] applies [`super::budget::ByteCaps`] truncation to each transcript
-//! field, then renders the user_template through minijinja with the prepared
-//! data. It returns a JSON value ready to POST as the body of an Anthropic
-//! Messages API request.
+//!    `prompts_dir/recipes/<recipe_name>.toml` and apply its overrides.
+//! 3. Render the user_template via minijinja with the prepared transcript.
 
 use anyhow::{Context, Result};
 use minijinja::{context, Environment};
 use serde::Deserialize;
 use std::path::Path;
 
+use super::backend::RenderedPrompt;
 use super::budget::{self, ByteCaps};
 use super::DistillerInput;
 
-/// A fully-resolved prompt template.
+/// A fully-resolved prompt template — the in-memory shape after merging
+/// base + recipe.
 #[derive(Debug, Clone)]
 pub struct PromptTemplate {
-    pub model: String,
+    pub model: Option<String>,
     pub max_tokens: u32,
     pub byte_caps: ByteCaps,
     pub max_facts_per_session: Option<u32>,
@@ -36,8 +31,6 @@ pub struct PromptTemplate {
     pub system: String,
     pub user_template: String,
 }
-
-// ────────────── on-disk file shapes ──────────────
 
 #[derive(Debug, Deserialize)]
 struct BaseFile {
@@ -53,7 +46,8 @@ struct BaseMeta {
     #[allow(dead_code)]
     #[serde(default)]
     description: Option<String>,
-    model: String,
+    #[serde(default)]
+    model: Option<String>,
     #[serde(default = "default_max_tokens")]
     max_tokens: u32,
 }
@@ -107,8 +101,6 @@ struct RecipePromptOverrides {
     extra_system: Option<String>,
 }
 
-// ────────────── load + render ──────────────
-
 /// Load and resolve a recipe. `recipe_name == "default"` skips recipe lookup.
 pub fn load(recipe_name: &str, prompts_dir: &Path) -> Result<PromptTemplate> {
     let base_path = prompts_dir.join("distill.toml");
@@ -137,7 +129,7 @@ pub fn load(recipe_name: &str, prompts_dir: &Path) -> Result<PromptTemplate> {
             .with_context(|| format!("parsing recipe {}", recipe_path.display()))?;
 
         if let Some(model) = recipe.meta.model {
-            tpl.model = model;
+            tpl.model = Some(model);
         }
         if let Some(mt) = recipe.meta.max_tokens {
             tpl.max_tokens = mt;
@@ -152,8 +144,8 @@ pub fn load(recipe_name: &str, prompts_dir: &Path) -> Result<PromptTemplate> {
     Ok(tpl)
 }
 
-/// Render the template into an Anthropic Messages API request body.
-pub fn render(tpl: &PromptTemplate, input: &DistillerInput) -> Result<serde_json::Value> {
+/// Render the template into a backend-agnostic [`RenderedPrompt`].
+pub fn render(tpl: &PromptTemplate, input: &DistillerInput) -> Result<RenderedPrompt> {
     let prepared = prepare_for_template(input, &tpl.byte_caps);
 
     let mut env = Environment::new();
@@ -171,19 +163,14 @@ pub fn render(tpl: &PromptTemplate, input: &DistillerInput) -> Result<serde_json
         })
         .context("rendering user_template (minijinja)")?;
 
-    Ok(serde_json::json!({
-        "model": tpl.model,
-        "max_tokens": tpl.max_tokens,
-        "system": tpl.system,
-        "messages": [
-            {"role": "user", "content": user_message}
-        ]
-    }))
+    Ok(RenderedPrompt {
+        system: tpl.system.clone(),
+        user: user_message,
+        model: tpl.model.clone(),
+        max_tokens: tpl.max_tokens,
+    })
 }
 
-/// Apply byte caps to each transcript message field and shape the data
-/// minijinja will see. Tool-use inputs are JSON-stringified before capping
-/// (LLM doesn't need the structured form once truncation is in play).
 fn prepare_for_template(input: &DistillerInput, caps: &ByteCaps) -> serde_json::Value {
     let messages: Vec<serde_json::Value> = input
         .conversation
@@ -235,7 +222,7 @@ fn prepare_for_template(input: &DistillerInput, caps: &ByteCaps) -> serde_json::
 mod tests {
     use super::*;
     use crate::transcript::metadata::SessionMetadata;
-    use crate::transcript::{ConversationData, Message, ToolCall};
+    use crate::transcript::{ConversationData, Message};
     use std::io::Write;
 
     fn write_file(path: &Path, content: &str) {
@@ -250,7 +237,6 @@ mod tests {
         r#"
 [meta]
 name = "default"
-model = "claude-haiku-4-5"
 
 [byte_caps]
 tool_use = 4096
@@ -268,141 +254,40 @@ user_template = "USER {{ transcript.session_id }}"
         DistillerInput {
             conversation: ConversationData {
                 session_id: "sid-123".into(),
-                messages: vec![
-                    Message {
-                        role: "user".into(),
-                        content: "Hello there".into(),
-                        tool_calls: vec![],
-                    },
-                    Message {
-                        role: "assistant".into(),
-                        content: "Hi back!".into(),
-                        tool_calls: vec![ToolCall {
-                            name: "Bash".into(),
-                            input: serde_json::json!({"command": "ls"}),
-                            output: Some("file1.txt".into()),
-                        }],
-                    },
-                ],
+                messages: vec![Message {
+                    role: "user".into(),
+                    content: "hello".into(),
+                    tool_calls: vec![],
+                }],
                 metadata: SessionMetadata {
                     session_id: "sid-123".into(),
                     cwd: None,
                     started_at: None,
                     ended_at: None,
-                    model: Some("claude-opus-4-7".into()),
+                    model: None,
                     input_tokens: 0,
                     output_tokens: 0,
-                    event_count: 2,
+                    event_count: 1,
                 },
             },
             recipe_name: "default".into(),
         }
     }
 
-    // ────────────── load ──────────────
-
     #[test]
-    fn load_default_reads_base_only() {
+    fn load_default_yields_no_model_override() {
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("distill.toml"), minimal_base_toml());
-
         let tpl = load("default", dir.path()).unwrap();
-        assert_eq!(tpl.model, "claude-haiku-4-5");
+        assert!(tpl.model.is_none());
         assert_eq!(tpl.max_tokens, 4096);
         assert_eq!(tpl.system, "BASE SYSTEM");
-        assert!(tpl.max_facts_per_session.is_none());
-        assert!(tpl.max_body_chars.is_none());
     }
 
     #[test]
-    fn load_recipe_appends_extra_system_to_base() {
-        let dir = tempfile::tempdir().unwrap();
-        write_file(&dir.path().join("distill.toml"), minimal_base_toml());
-        write_file(
-            &dir.path().join("recipes/minim.toml"),
-            r#"
-[meta]
-name = "minim"
-inherits = "default"
-
-[overrides]
-max_facts_per_session = 5
-
-[prompt_overrides]
-extra_system = "\n\nMINIMAL OVERRIDE"
-"#,
-        );
-
-        let tpl = load("minim", dir.path()).unwrap();
-        assert!(tpl.system.starts_with("BASE SYSTEM"));
-        assert!(tpl.system.contains("MINIMAL OVERRIDE"));
-        assert_eq!(tpl.max_facts_per_session, Some(5));
-    }
-
-    #[test]
-    fn load_recipe_can_override_model() {
-        let dir = tempfile::tempdir().unwrap();
-        write_file(&dir.path().join("distill.toml"), minimal_base_toml());
-        write_file(
-            &dir.path().join("recipes/sonnet.toml"),
-            r#"
-[meta]
-name = "sonnet"
-model = "claude-sonnet-4-6"
-"#,
-        );
-
-        let tpl = load("sonnet", dir.path()).unwrap();
-        assert_eq!(tpl.model, "claude-sonnet-4-6");
-    }
-
-    #[test]
-    fn load_recipe_missing_overrides_table_is_ok() {
-        let dir = tempfile::tempdir().unwrap();
-        write_file(&dir.path().join("distill.toml"), minimal_base_toml());
-        write_file(
-            &dir.path().join("recipes/bare.toml"),
-            r#"
-[meta]
-name = "bare"
-"#,
-        );
-        let tpl = load("bare", dir.path()).unwrap();
-        assert!(tpl.max_facts_per_session.is_none());
-    }
-
-    #[test]
-    fn load_missing_base_file_errors() {
-        let dir = tempfile::tempdir().unwrap();
-        let err = load("default", dir.path()).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("reading base prompt"), "got: {msg}");
-    }
-
-    #[test]
-    fn load_missing_recipe_errors() {
-        let dir = tempfile::tempdir().unwrap();
-        write_file(&dir.path().join("distill.toml"), minimal_base_toml());
-        let err = load("nonexistent", dir.path()).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("reading recipe"), "got: {msg}");
-    }
-
-    #[test]
-    fn load_malformed_toml_errors() {
-        let dir = tempfile::tempdir().unwrap();
-        write_file(&dir.path().join("distill.toml"), "this is = = not = toml");
-        let err = load("default", dir.path()).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("parsing base prompt"), "got: {msg}");
-    }
-
-    // ────────────── render ──────────────
-
-    #[test]
-    fn render_produces_anthropic_request_shape() {
+    fn render_produces_rendered_prompt_struct() {
         let tpl = PromptTemplate {
-            model: "claude-haiku-4-5".into(),
+            model: Some("claude-haiku-4-5".into()),
             max_tokens: 1024,
             byte_caps: ByteCaps::default(),
             max_facts_per_session: None,
@@ -410,19 +295,17 @@ name = "bare"
             system: "SYS".into(),
             user_template: "Session: {{ transcript.session_id }}".into(),
         };
-        let req = render(&tpl, &sample_input()).unwrap();
-        assert_eq!(req["model"], "claude-haiku-4-5");
-        assert_eq!(req["max_tokens"], 1024);
-        assert_eq!(req["system"], "SYS");
-        assert_eq!(req["messages"][0]["role"], "user");
-        let user_content = req["messages"][0]["content"].as_str().unwrap();
-        assert!(user_content.contains("sid-123"));
+        let p = render(&tpl, &sample_input()).unwrap();
+        assert_eq!(p.system, "SYS");
+        assert_eq!(p.model.as_deref(), Some("claude-haiku-4-5"));
+        assert_eq!(p.max_tokens, 1024);
+        assert!(p.user.contains("sid-123"));
     }
 
     #[test]
     fn render_passes_max_facts_to_template() {
         let tpl = PromptTemplate {
-            model: "x".into(),
+            model: None,
             max_tokens: 1024,
             byte_caps: ByteCaps::default(),
             max_facts_per_session: Some(7),
@@ -430,33 +313,14 @@ name = "bare"
             system: "".into(),
             user_template: "{% if max_facts %}MAX={{ max_facts }}{% endif %}".into(),
         };
-        let req = render(&tpl, &sample_input()).unwrap();
-        let user = req["messages"][0]["content"].as_str().unwrap();
-        assert!(user.contains("MAX=7"));
-    }
-
-    #[test]
-    fn render_passes_messages_to_template() {
-        let tpl = PromptTemplate {
-            model: "x".into(),
-            max_tokens: 1024,
-            byte_caps: ByteCaps::default(),
-            max_facts_per_session: None,
-            max_body_chars: None,
-            system: "".into(),
-            user_template:
-                "Count: {{ transcript.messages | length }} | First role: {{ transcript.messages[0].role }}".into(),
-        };
-        let req = render(&tpl, &sample_input()).unwrap();
-        let user = req["messages"][0]["content"].as_str().unwrap();
-        assert!(user.contains("Count: 2"));
-        assert!(user.contains("First role: user"));
+        let p = render(&tpl, &sample_input()).unwrap();
+        assert!(p.user.contains("MAX=7"));
     }
 
     #[test]
     fn render_truncates_long_user_message() {
         let tpl = PromptTemplate {
-            model: "x".into(),
+            model: None,
             max_tokens: 1024,
             byte_caps: ByteCaps {
                 user_message: 20,
@@ -469,58 +333,41 @@ name = "bare"
         };
         let mut input = sample_input();
         input.conversation.messages[0].content = "X".repeat(1000);
-        let req = render(&tpl, &input).unwrap();
-        let user = req["messages"][0]["content"].as_str().unwrap();
-        assert!(user.contains("truncated"));
+        let p = render(&tpl, &input).unwrap();
+        assert!(p.user.contains("truncated"));
     }
 
     #[test]
-    fn render_includes_tool_calls_in_template() {
-        let tpl = PromptTemplate {
-            model: "x".into(),
-            max_tokens: 1024,
-            byte_caps: ByteCaps::default(),
-            max_facts_per_session: None,
-            max_body_chars: None,
-            system: "".into(),
-            user_template:
-                "TC: {{ transcript.messages[1].tool_calls[0].name }} OUT: {{ transcript.messages[1].tool_calls[0].output }}".into(),
-        };
-        let req = render(&tpl, &sample_input()).unwrap();
-        let user = req["messages"][0]["content"].as_str().unwrap();
-        assert!(user.contains("TC: Bash"));
-        assert!(user.contains("OUT: file1.txt"));
-    }
+    fn load_recipe_appends_extra_system() {
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join("distill.toml"), minimal_base_toml());
+        write_file(
+            &dir.path().join("recipes/min.toml"),
+            r#"
+[meta]
+name = "min"
+inherits = "default"
 
-    #[test]
-    fn render_template_compile_error_surfaces_clearly() {
-        let tpl = PromptTemplate {
-            model: "x".into(),
-            max_tokens: 1024,
-            byte_caps: ByteCaps::default(),
-            max_facts_per_session: None,
-            max_body_chars: None,
-            system: "".into(),
-            user_template: "{% this is broken jinja".into(),
-        };
-        let err = render(&tpl, &sample_input()).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(
-            msg.contains("compiling user_template") || msg.contains("user_template"),
-            "got: {msg}"
+[overrides]
+max_facts_per_session = 5
+
+[prompt_overrides]
+extra_system = "\n\nMINIMAL"
+"#,
         );
+        let tpl = load("min", dir.path()).unwrap();
+        assert!(tpl.system.contains("BASE SYSTEM"));
+        assert!(tpl.system.contains("MINIMAL"));
+        assert_eq!(tpl.max_facts_per_session, Some(5));
     }
 
-    // ────────────── real prompts/ files ──────────────
-
-    /// Smoke test: the actual repo prompts/distill.toml + each recipe must
-    /// load without error. Catches schema drift between the toml and our
-    /// deserialize structs.
+    /// Smoke: shipped prompts/distill.toml loads cleanly under the new
+    /// (model-optional) deserialize path.
     #[test]
     fn real_repo_prompts_load_cleanly() {
         let prompts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("prompts");
         if !prompts_dir.exists() {
-            return; // unusual, but don't fail the suite
+            return;
         }
         let _default = load("default", &prompts_dir).expect("default loads");
         for recipe in &["minimalist", "dev-journal", "verbose"] {

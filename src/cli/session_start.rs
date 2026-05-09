@@ -56,7 +56,7 @@ pub async fn run() -> Result<()> {
         vault_path: cfg.default.vault_path,
         alluvium_subdir: cfg.default.alluvium_subdir,
         recipe: cfg.default.recipe,
-        model: cfg.default.model,
+        model: cfg.default.model.unwrap_or_default(),
         keep_source_summaries: cfg.default.keep_source_summaries,
     };
 

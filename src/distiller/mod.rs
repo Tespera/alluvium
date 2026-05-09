@@ -1,20 +1,16 @@
 //! LLM distillation layer.
 //!
-//! Calls the Anthropic API with a rendered prompt and parses the structured
-//! response into [`DistillerOutput`]. The output (a list of typed
-//! [`crate::extraction::ExtractedFact`]s) is what wiki + vault modules
-//! consume to build / merge topic pages.
-//!
-//! Module roles:
-//! - [`client`]  — HTTP transport (Anthropic Messages API)
-//! - [`prompt`]  — load `prompts/*.toml`, render with minijinja
-//! - [`parser`]  — Anthropic response Value → [`DistillerOutput`]
-//! - [`budget`]  — pre-prompt byte caps for transcript fields
+//! Multi-backend: claude-cli (default, uses user's Claude Code OAuth),
+//! Anthropic, OpenAI, DeepSeek, Gemini. See [`backend`] for the trait and
+//! [`backends`] for concrete implementations. [`selection`] picks one based
+//! on config + auto-detection.
 
+pub mod backend;
+pub mod backends;
 pub mod budget;
-pub mod client;
 pub mod parser;
 pub mod prompt;
+pub mod selection;
 
 use serde::{Deserialize, Serialize};
 
@@ -35,8 +31,8 @@ pub struct DistillerOutput {
     pub usage: Option<TokenUsage>,
 }
 
-/// Token counts surfaced by the Anthropic API. Used for cost tracking and
-/// audit-log entries; treated as best-effort (older transcripts may omit).
+/// Token counts surfaced by an LLM backend (when available). `claude -p`
+/// in plain-text mode does not surface these and reports `None`.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TokenUsage {
     pub input_tokens: u64,
