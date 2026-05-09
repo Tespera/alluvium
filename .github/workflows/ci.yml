@@ -40,4 +40,6 @@ jobs:
         run: cargo build --all-targets
 
       - name: Test
-        run: cargo test --all -- --include-ignored=false
+        # Default behavior excludes #[ignore]'d tests. We rely on that here so
+        # the scaffold-stage e2e tests (all ignored) don't fail CI.
+        run: cargo test --all
