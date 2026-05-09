@@ -1,0 +1,22 @@
+# Recipe: dev-journal
+#
+# Style: first-person, "what I figured out today + where I got stuck". Emphasizes
+# decisions and gotchas; lighter on background concept exposition.
+# Best for: solo developers using Alluvium as a working journal.
+
+[meta]
+name = "dev-journal"
+description = "First-person dev journal: decisions + gotchas heavy."
+inherits = "default"
+
+[overrides]
+max_facts_per_session = 12
+max_body_chars = 1200
+include_gotchas = true
+
+[prompt_overrides]
+extra_system = """
+TODO: implementation pending in v0.1.
+Style guide: first-person past tense ("I tried X, hit Y, ended up doing Z").
+Prioritize gotchas and decisions over abstract explanations.
+"""

@@ -1,0 +1,22 @@
+# Recipe: verbose
+#
+# Style: full pedagogical write-up. Concepts get detailed explanations; entities
+# get full background.
+# Best for: research, knowledge-base building, content production.
+
+[meta]
+name = "verbose"
+description = "Full pedagogical write-up; long-form concept and entity pages."
+inherits = "default"
+
+[overrides]
+max_facts_per_session = 20
+max_body_chars = 4000
+include_gotchas = true
+
+[prompt_overrides]
+extra_system = """
+TODO: implementation pending in v0.1.
+Style guide: explanatory prose, ~3-5 paragraphs per fact, includes background
+and concrete examples drawn from the transcript.
+"""

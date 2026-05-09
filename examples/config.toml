@@ -1,0 +1,42 @@
+# Alluvium configuration · default location: ~/.config/alluvium/config.toml
+#
+# This file is created/updated interactively by `alluvium init`. You can also
+# edit it by hand at any time; the daemon re-reads it at the next SessionStart.
+
+[default]
+# Path to your Obsidian vault root.
+vault_path = "/Users/you/Documents/MyVault"
+
+# Subdirectory inside the vault where Alluvium writes (recommended: "Alluvium").
+# Set to "" to write directly into the vault root.
+alluvium_subdir = "Alluvium"
+
+# Recipe to use for distillation. See prompts/recipes/.
+# Built-in: minimalist | dev-journal | verbose
+recipe = "dev-journal"
+
+# Anthropic model for distillation. Haiku is recommended; Sonnet for higher quality
+# at ~5x cost.
+model = "claude-haiku-4-5"
+
+# Whether to keep per-session source summary pages in wiki/sources/.
+# false = only entity/concept pages get touched (recommended).
+# true  = also keep one summary page per session under wiki/sources/.
+keep_source_summaries = false
+
+# Paths whose Claude Code sessions should NOT be archived (self-reference filter).
+# Alluvium auto-detects its own dev directory; add your other "don't archive" paths.
+skip_paths = [
+  # "/Users/you/personal-stuff",
+]
+
+# --- v0.2: profile support (structure reserved, not yet active) ----------------
+#
+# Once multi-profile lands, you'll be able to add additional [profiles.<name>]
+# tables. Each profile inherits from [default] and overrides specific fields.
+# Until then, do NOT add [profiles.*] tables — they will be ignored with a warning.
+#
+# [profiles.work]
+# vault_path = "/Users/you/Documents/Work-Vault"
+# recipe = "minimalist"
+# model = "claude-sonnet-4-6"

@@ -1,0 +1,35 @@
+---
+title: {{ title }}
+type: {{ type }}
+tags:
+{%- for tag in tags %}
+  - {{ tag }}
+{%- endfor %}
+created: {{ created }}
+updated: {{ updated }}
+sources:
+{%- for source in sources %}
+  - "{{ source }}"
+{%- endfor %}
+relations:
+  uses:
+{%- for r in relations.uses | default(value=[]) %}
+    - "{{ r }}"
+{%- endfor %}
+  used-by:
+{%- for r in relations.used_by | default(value=[]) %}
+    - "{{ r }}"
+{%- endfor %}
+  related:
+{%- for r in relations.related | default(value=[]) %}
+    - "{{ r }}"
+{%- endfor %}
+  supersedes:
+{%- for r in relations.supersedes | default(value=[]) %}
+    - "{{ r }}"
+{%- endfor %}
+---
+
+# {{ title }}
+
+{{ body }}

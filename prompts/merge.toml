@@ -1,0 +1,22 @@
+# Alluvium · merge prompt.
+#
+# Used when an ExtractedFact targets an existing topic page. The LLM is given
+# the existing page body + the new fact, and asked to produce the merged body
+# such that:
+#   - User hand-edits to the existing body are preserved.
+#   - The new fact is integrated, not appended verbatim.
+#   - The page does not grow unboundedly (consolidate where possible).
+
+[meta]
+name = "default-merge"
+description = "Merge a new ExtractedFact into an existing topic page, preserving user edits."
+model = "claude-haiku-4-5"
+
+[prompt]
+system = """
+TODO: implementation pending in v0.1.
+"""
+
+user_template = """
+TODO: implementation pending in v0.1.
+"""

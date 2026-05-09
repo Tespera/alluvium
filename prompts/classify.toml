@@ -1,0 +1,18 @@
+# Alluvium · classify prompt.
+#
+# Decides whether an ExtractedFact is an "entity" (project / tool / library / person)
+# or a "concept" (idea / pattern / technique / method). Used by extraction.
+
+[meta]
+name = "default-classify"
+description = "Classify an extracted fact as entity vs concept."
+model = "claude-haiku-4-5"
+
+[prompt]
+system = """
+TODO: implementation pending in v0.1.
+"""
+
+user_template = """
+TODO: implementation pending in v0.1.
+"""

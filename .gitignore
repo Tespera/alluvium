@@ -1,0 +1,32 @@
+# --- Rust ---
+/target
+**/*.rs.bk
+*.pdb
+Cargo.lock.bak
+
+# --- Editors / IDE ---
+/.idea/
+/.vscode/
+*.iml
+*.swp
+*.swo
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Local secrets ---
+.env
+.env.local
+*.pem
+*.key
+
+# --- Alluvium runtime/dev artifacts ---
+# Local debug dumps that may end up in the repo accidentally if cwd is wrong.
+debug-dumps/
+scratch/
+
+# --- OS / misc ---
+*.log
+*.tmp

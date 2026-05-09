@@ -1,0 +1,59 @@
+# Alluvium · default distillation prompt.
+#
+# Loaded by `src/distiller/prompt.rs` and rendered with `minijinja` against
+# variables: { transcript, recipe_overrides, session_metadata, vault_index_summary }.
+#
+# Edit this file to change the default behavior. To create a variant without
+# modifying the default, copy this file to `prompts/recipes/<name>.toml` and
+# reference it from `~/.config/alluvium/config.toml` as `recipe = "<name>"`.
+
+[meta]
+name = "default"
+description = "Extract entities + concepts + decisions + gotchas from a Claude Code session and emit a structured JSON the Alluvium parser can consume."
+model = "claude-haiku-4-5"
+
+[byte_caps]
+# Per-field truncation before the transcript is templated into the prompt.
+# Borrowed from cognee-integrations to avoid blowing the context budget on
+# a single huge tool result.
+tool_use = 4096
+tool_result = 8192
+user_message = 8192
+assistant_message = 16384
+
+[output_schema]
+# JSON schema fields the LLM must populate. The parser in src/distiller/parser.rs
+# enforces this. Adding/removing fields here without updating the parser will fail tests.
+fields = [
+  "title",          # string: short human-readable title for the source-summary page
+  "tags",           # array<string>: 3-7 thematic tags
+  "extracted",      # array<ExtractedFact>: see schema below
+]
+
+# ExtractedFact = {
+#   type: "entity" | "concept" | "decision" | "gotcha",
+#   page_slug: string,             # kebab-case canonical name; matches an existing or new topic page
+#   page_title: string,            # human-readable title
+#   summary: string,               # 1-3 sentence claim
+#   body_markdown: string,         # the prose to merge into the page (1-5 paragraphs)
+#   relations: { uses: [], used_by: [], related: [], supersedes: [] },
+#   evidence: array<{ from_message_index: int, snippet: string }>,
+#   confidence: float (0.0 - 1.0),
+# }
+
+[prompt]
+# TODO: populate during v0.1 implementation. The system prompt must:
+#  1. Tell the model it is a knowledge librarian, not a chat summarizer.
+#  2. Define entity vs concept (see docs/KNOWLEDGE_MODEL.md).
+#  3. Tell it to update existing topic pages where possible (deduplicate).
+#  4. Forbid quoting raw chat verbatim — distill.
+#  5. Emit JSON conforming to output_schema above.
+system = """
+TODO: implementation pending in v0.1.
+See docs/KNOWLEDGE_MODEL.md for the schema this prompt must produce.
+"""
+
+# minijinja template; receives `transcript`, `recipe_overrides`, etc.
+user_template = """
+TODO: implementation pending in v0.1.
+"""

@@ -1,0 +1,76 @@
+[package]
+name = "alluvium"
+version = "0.1.0"
+edition = "2021"
+authors = ["Eric"]
+description = "Auto-archive Claude Code sessions to your Obsidian vault as a Karpathy-style LLM wiki."
+homepage = "https://github.com/eepierslester77/alluvium"
+repository = "https://github.com/eepierslester77/alluvium"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["claude", "obsidian", "pkm", "claude-code", "llm-wiki"]
+categories = ["command-line-utilities"]
+rust-version = "1.75"
+exclude = [
+  "/.github/",
+  "/docs/",
+  "/examples/sample-vault/",
+]
+
+[lib]
+name = "alluvium"
+path = "src/lib.rs"
+
+[[bin]]
+name = "alluvium"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+dialoguer = "0.11"
+
+# Async runtime + HTTP
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "fs", "process", "sync", "time", "io-util"] }
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+gray_matter = "0.2"
+
+# Templates
+minijinja = "2.3"
+
+# Filesystem
+fs2 = "0.4"
+tempfile = "3.13"
+
+# Secrets
+keyring = { version = "3.5", features = ["apple-native", "linux-native", "windows-native"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Errors + logging
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+pretty_assertions = "1.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

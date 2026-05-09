@@ -1,0 +1,31 @@
+{
+  "name": "alluvium",
+  "version": "0.1.0",
+  "description": "Auto-archive Claude Code sessions to your Obsidian vault as a Karpathy-style LLM wiki.",
+  "author": "Eric",
+  "homepage": "https://github.com/eepierslester77/alluvium",
+  "license": "MIT OR Apache-2.0",
+  "_comment": "Hooks invoke the alluvium binary which must be on PATH. See docs/HOOKS.md for the contract each hook upholds.",
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "alluvium session-start",
+      "description": "Resolve config, write per-session metadata, decide self-filter."
+    },
+    {
+      "event": "PreCompact",
+      "command": "alluvium pre-compact",
+      "description": "Snapshot transcript before compaction so original detail is not lost."
+    },
+    {
+      "event": "Stop",
+      "command": "alluvium archive --session $SESSION_ID",
+      "description": "Spawn detached archive worker; hook returns within 100ms."
+    },
+    {
+      "event": "SessionEnd",
+      "command": "alluvium session-end",
+      "description": "Clean up per-session cache directory."
+    }
+  ]
+}

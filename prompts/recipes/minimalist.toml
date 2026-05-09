@@ -1,0 +1,26 @@
+# Recipe: minimalist
+#
+# Style: only the most important decisions and conclusions. ~10 lines per page max.
+# Best for: users who want a low-noise vault and don't mind losing detail.
+
+[meta]
+name = "minimalist"
+description = "Only key decisions and conclusions; aggressive compression."
+inherits = "default"
+
+[overrides]
+# Number of ExtractedFacts allowed per session. Default: unlimited.
+max_facts_per_session = 5
+
+# Per-fact body length cap (characters).
+max_body_chars = 400
+
+# Whether to record gotchas/踩坑.
+include_gotchas = false
+
+[prompt_overrides]
+# Prepended to system prompt when this recipe is active.
+extra_system = """
+TODO: implementation pending in v0.1.
+Style guide: terse, declarative, decisions-only. No prose hedging.
+"""

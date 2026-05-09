@@ -1,0 +1,15 @@
+Alluvium
+Copyright 2026 Eric
+
+This product is dual-licensed under the MIT License (LICENSE-MIT) and the
+Apache License, Version 2.0 (LICENSE-APACHE), at your option.
+
+This software contains design and pattern inspirations from the following
+upstream projects (see docs/PRIOR_ART.md for details):
+
+  - eugeniughelbur/obsidian-second-brain (MIT)
+  - topoteretes/cognee-integrations (Apache-2.0)
+  - AgriciDaniel/claude-obsidian (MIT)
+  - Andrej Karpathy's "LLM Wiki" gist
+
+No code from those projects is vendored. Independent re-implementation only.
