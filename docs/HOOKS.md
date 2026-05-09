@@ -9,11 +9,38 @@ Alluvium 安装为 Claude Code Plugin，在 `.claude-plugin/plugin.json` 里声�
   "hooks": [
     { "event": "SessionStart", "command": "alluvium session-start" },
     { "event": "PreCompact",   "command": "alluvium pre-compact" },
-    { "event": "Stop",         "command": "alluvium archive --session $SESSION_ID" },
+    { "event": "Stop",         "command": "alluvium archive" },
     { "event": "SessionEnd",   "command": "alluvium session-end" }
   ]
 }
 ```
+
+## Hook 接收上下文的方式（关键）
+
+**Claude Code hook 通过 stdin 给命令传一个 JSON payload**——不是环境变量、不是命令行参数。
+
+每个 hook 命令收到的 stdin 长这样：
+
+```json
+{
+  "session_id": "abc123",
+  "transcript_path": "/path/to/transcript.jsonl",
+  "cwd": "/current/working/directory",
+  "permission_mode": "default",
+  "hook_event_name": "Stop"
+}
+```
+
+所有 hook 事件（SessionStart / PreCompact / Stop / SessionEnd / UserPromptSubmit / PostToolUse）的 stdin schema 相同；用 `hook_event_name` 字段区分。
+
+**可用的环境变量只有路径相关的**（不是 session 上下文）：
+- `$CLAUDE_PROJECT_DIR` — 项目根
+- `$CLAUDE_PLUGIN_ROOT` — plugin 安装目录
+- `$CLAUDE_PLUGIN_DATA` — plugin 持久数据目录
+
+**`$SESSION_ID` 不存在**——这是早期设计的误解，已修正。详见 ADR-011 in [DECISIONS.md](DECISIONS.md)。
+
+实现：见 [`src/hook/payload.rs`](../src/hook/payload.rs) 的 `HookPayload` 结构 + `read_from_stdin()`。每个 hook 子命令的入口先调它解析 payload，再走自己的逻辑。
 
 ## SessionStart
 
@@ -21,9 +48,9 @@ Alluvium 安装为 Claude Code Plugin，在 `.claude-plugin/plugin.json` 里声�
 
 **Alluvium 做的事**：
 
-1. 读 `~/.config/alluvium/config.toml` 决定本次 session 的 vault、profile、recipe
+1. 读 ``<config>`/config.toml` 决定本次 session 的 vault、profile、recipe
 2. 检查 cwd 是否触发 self-filter（开发 Alluvium 自己时跳过）
-3. 写 `~/.cache/alluvium/sessions/<session-id>/resolved.json`：
+3. 写 ``<cache>`/sessions/<session-id>/resolved.json`：
    ```json
    {
      "session_id": "...",
@@ -48,7 +75,7 @@ Alluvium 安装为 Claude Code Plugin，在 `.claude-plugin/plugin.json` 里声�
 
 1. 读 `resolved.json` 拿 session id
 2. 抓当前的 transcript JSONL（截至此刻）
-3. 复制一份到 `~/.cache/alluvium/sessions/<id>/snapshots/{N:04d}.jsonl`（N 递增）
+3. 复制一份到 ``<cache>`/sessions/<id>/snapshots/{N:04d}.jsonl`（N 递增）
 
 **为什么不能省**：长 session 中途 compaction 后，原始细节会被压缩成摘要。如果只挂 Stop hook，等 session 结束时 transcript 里只剩压缩版，蒸馏出来的笔记**丢内容**。snapshot 把 compact 之前的状态留下来，archive 时再合并。
 
@@ -76,7 +103,7 @@ let _ = Command::new("alluvium")
 
 子进程做的事（在后台跑 5-30 秒）：
 
-1. 加文件锁 `~/.cache/alluvium/lock`（防两个 session 同时归档撞同一个 vault 文件）
+1. 加文件锁 ``<cache>`/lock`（防两个 session 同时归档撞同一个 vault 文件）
 2. 检查 `resolved.json.skip_reason`，如果非空（self-filter 命中）直接 exit
 3. 调 `transcript::merge_snapshots` 合并 PreCompact 快照 + 最终 transcript JSONL
 4. 调 `distiller::run` 蒸馏（带 byte cap，按 recipe）
@@ -103,7 +130,7 @@ let _ = Command::new("alluvium")
 **Alluvium 做的事**：
 
 1. 读 `resolved.json`
-2. 删除 `~/.cache/alluvium/sessions/<id>/` 整个目录
+2. 删除 ``<cache>`/sessions/<id>/` 整个目录
 
 **为什么需要**：清理快照临时文件。如果不清理，长期累积会占盘。
 
@@ -117,7 +144,7 @@ let _ = Command::new("alluvium")
 
 两个 session 几乎同时结束 → 两个 detached `alluvium archive` 子进程并发跑 → 可能同时改同一个 topic 页。
 
-用 `fs2::FileExt::lock_exclusive` 在 `~/.cache/alluvium/lock` 上加锁。后到的等前一个完成。
+用 `fs2::FileExt::lock_exclusive` 在 ``<cache>`/lock` 上加锁。后到的等前一个完成。
 
 实现：`src/hook/lock.rs`。
 

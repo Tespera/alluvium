@@ -40,7 +40,7 @@ vault 内三层：
 ## Hook 架构（4 个，详见 [docs/HOOKS.md](docs/HOOKS.md)）
 
 ```
-SessionStart  →  写 ~/.cache/alluvium/sessions/<id>/resolved.json
+SessionStart  →  写 `<cache>`/sessions/<id>/resolved.json
 PreCompact    →  快照当前 transcript 防 compact 后丢
 Stop          →  spawn detached 子进程，hook 立即返回（不卡 Claude Code）
 SessionEnd    →  清理临时文件

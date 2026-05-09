@@ -95,6 +95,10 @@
 - ❌ 自动定时 consolidate
 - ➜ v0.2 加。v0.1 `alluvium consolidate` 是**手动**触发的命令
 
+### Sources 回填
+- ❌ `alluvium replay --rebuild-sources`（用户后续打开 `keep_source_summaries = true` 时，给历史 session 补 `wiki/sources/` 摘要页）
+- ➜ v0.2
+
 ### 双向交互
 - ❌ Alluvium 内嵌的 MCP server（让 Claude 能查 vault）
 - ❌ Slash command（`/alluvium-recall` 之类）

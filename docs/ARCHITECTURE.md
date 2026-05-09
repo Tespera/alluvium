@@ -124,16 +124,27 @@ Claude Code session 进行中
 
 ## 运行时状态文件
 
+路径解析走 [`directories`](https://crates.io/crates/directories) crate（`ProjectDirs::from("dev", "alluvium", "alluvium")`），各平台映射：
+
+| 逻辑名 | Linux | macOS | Windows |
+|---|---|---|---|
+| **`<config>`** | `~/.config/alluvium` | `~/Library/Application Support/dev.alluvium.alluvium` | `%APPDATA%\alluvium\alluvium\config` |
+| **`<cache>`** | `~/.cache/alluvium` | `~/Library/Caches/dev.alluvium.alluvium` | `%LOCALAPPDATA%\alluvium\alluvium\cache` |
+| **`<data>`** | `~/.local/share/alluvium` | `~/Library/Application Support/dev.alluvium.alluvium` | `%APPDATA%\alluvium\alluvium\data` |
+
+文档下文用抽象路径 `<config>/`、`<cache>/`、`<data>/` 指代各自实际位置。理由见 [DECISIONS.md ADR-010](DECISIONS.md)。
+
 ```
-~/.config/alluvium/
+<config>/
 └── config.toml                           # 主配置（用户可编辑）
 
-~/.cache/alluvium/                         # 临时状态，可随便删
+<cache>/                                   # 临时状态，可随便删
+├── lock                                  # 文件锁（archive 写盘并发互斥）
 └── sessions/<session-id>/
     ├── resolved.json                     # SessionStart 写的元信息
     └── snapshots/0001.jsonl              # PreCompact 快照（多次累积）
 
-~/.local/share/alluvium/                   # 持久数据
+<data>/                                    # 持久数据
 ├── log/archive.jsonl                     # 每次归档一条记录
 └── debug/<session-id>/                   # --debug 时落各阶段中间产物 JSON
     ├── 01-transcript-reconstructed.json

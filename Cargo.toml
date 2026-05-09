@@ -48,6 +48,7 @@ minijinja = "2.3"
 # Filesystem
 fs2 = "0.4"
 tempfile = "3.13"
+directories = "5.0"
 
 # Secrets
 keyring = { version = "3.5", features = ["apple-native", "linux-native", "windows-native"] }

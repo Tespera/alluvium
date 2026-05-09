@@ -9,6 +9,7 @@
 //! - [`spawn`] — detach a child so the hook returns within 100ms
 
 pub mod lock;
+pub mod payload;
 pub mod plugin_manifest;
 pub mod self_filter;
 pub mod spawn;

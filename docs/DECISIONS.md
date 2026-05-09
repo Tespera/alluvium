@@ -191,3 +191,126 @@
 **Alternatives considered**: 同步等待，被覆盖。
 
 **When to revisit**: 如果 v0.2 引入持久化任务队列。
+
+---
+
+## ADR-009: 用户手改保留 = HTML 注释段标记
+
+**Status**: Accepted (2026-05-09)
+
+**Context**: 硬约束 #5（[CLAUDE.md](../CLAUDE.md)）要求 Alluvium merge 时只覆盖自己上次写的部分，保留用户在 Obsidian 里的手改。"diff-based merge" 是一个口号，初稿没落地到具体算法。
+
+**Decision**: Alluvium 写入的每个段落用 HTML 注释标记包裹：
+
+```markdown
+<!-- alluvium:fact id=<short-hash> -->
+## Section title
+
+Body content.
+<!-- alluvium:end -->
+```
+
+merge 时算法：
+
+1. 解析现有页面，提取所有 `alluvium:fact` 块及其 id
+2. 对新 ExtractedFacts 中的每个 fact：
+   - 计算 fact id（page_slug + summary 的稳定哈希前 8 位）
+   - 如果 id 已存在，**只替换那个块的内容**
+   - 如果不存在，追加块到页面末尾
+3. **块外的所有内容（用户手写）原样保留**
+4. frontmatter 单独 merge：用户加的字段保留；Alluvium 拥有的字段（`updated`、`sources`、`relations.*`）覆盖。Rust 端用 const set 防止漂移
+
+**Why HTML 注释而非 frontmatter section hash**:
+
+- HTML 注释在 Obsidian 渲染时不可见，不污染阅读
+- grep 友好，定位边界不依赖 frontmatter parser
+- 用户在 Vim/VSCode 里编辑能看到块边界，知道 "动这里会被覆盖"
+
+**Trade-offs accepted**:
+
+- 用户手动删除注释标记后，merge 时该段会被当成 "用户手写" 而保留 + 追加新版本（重复）。需要在 [docs/CUSTOMIZING_PROMPTS.md](CUSTOMIZING_PROMPTS.md) 警告
+- frontmatter 字段属主划分需要单独维护清单
+
+**Alternatives considered**:
+
+- 三方 diff（cache 存上次写的快照）：cache 丢就崩，恢复路径复杂
+- frontmatter section hash：解析层依赖太重，failure mode 难调试
+- 整段重写 + 用户改后停手（"标记已被人编辑"）：知识不再增长，弃
+
+**When to revisit**: 如果用户反馈 HTML 注释影响他们的工作流（比如 Vim 里看着碍眼），考虑改成 frontmatter section hash。
+
+---
+
+## ADR-010: 运行时路径走 `directories` crate
+
+**Status**: Accepted (2026-05-09)
+
+**Context**: 初稿用 Linux XDG 路径（`~/.cache/`、`~/.local/share/`、`~/.config/`）当跨平台默认。在 macOS 上不符合系统惯例（应该是 `~/Library/...`）；Windows 上完全错。
+
+**Decision**: 用 [`directories`](https://crates.io/crates/directories) crate 的 `ProjectDirs::from("dev", "alluvium", "alluvium")` 解析所有运行时路径。每平台映射见 [ARCHITECTURE.md § 运行时状态文件](ARCHITECTURE.md#运行时状态文件)。
+
+**Why**:
+
+1. macOS 用户：`~/Library/Caches/` 自动遵守 Time Machine 不备份的惯例
+2. Windows 用户：未来 v0.2 支持 Windows 时不用迁移
+3. 实现成本零——crate 一行解析
+
+**Alternatives considered**:
+
+- 自己写 OS 检测 + 路径分支：维护负担、易错
+- 跨平台一律 XDG：macOS 用户体验差
+- 只支持 macOS：放弃 Linux / Windows 用户群
+
+**When to revisit**: 不会回退。
+
+---
+
+## ADR-011: Hook payload 走 stdin JSON，不走环境变量
+
+**Status**: Accepted (2026-05-09)
+
+**Context**: 初稿 `plugin.json` 里 Stop hook 命令写成 `alluvium archive --session $SESSION_ID`，假设 Claude Code 会展开 `$SESSION_ID` 环境变量。subagent 查 [Claude Code Hooks Reference](https://code.claude.com/docs/en/hooks.md) + 真实实现（cognee-integrations）后确认：**`$SESSION_ID` 不存在**。Claude Code 通过 stdin 给 hook 命令传 JSON payload。
+
+**Decision**: 所有 hook 入口命令读 stdin JSON 拿 session 上下文，不依赖任何 session 相关环境变量。
+
+stdin payload schema（所有 hook 事件相同）：
+
+```json
+{
+  "session_id": "...",
+  "transcript_path": "/path/to/.jsonl",
+  "cwd": "/path/to/cwd",
+  "permission_mode": "default",
+  "hook_event_name": "SessionStart" | "PreCompact" | "Stop" | "SessionEnd"
+}
+```
+
+实现：`src/hook/payload.rs` 的 `HookPayload` struct + `read_from_stdin()`。
+
+**Why**:
+
+1. 这是 Claude Code 官方接口约定；任何 "我猜应该这样" 的设计在第一次跑 hook 时就崩
+2. cognee-integrations 真实在用这个 pattern（`payload = json.loads(sys.stdin.read())`），已验证
+3. JSON 比环境变量结构化、可扩展（未来加字段不破坏向后兼容）
+
+**Available env vars（只有路径相关）**:
+
+- `$CLAUDE_PROJECT_DIR` — 项目根
+- `$CLAUDE_PLUGIN_ROOT` — plugin 安装目录
+- `$CLAUDE_PLUGIN_DATA` — plugin 持久数据
+
+这些**不是** session 上下文，是 plugin 框架给的路径常量。
+
+**`alluvium archive` 双模式**:
+
+- **Hook 模式**（无 `--session` 参数）：读 stdin
+- **Manual 模式**（`--session <id>`）：从参数取，用于 `replay` 命令内部调用
+
+CLI 用 clap 的 `Option<String>` 表达，运行时根据是否提供切换。
+
+**Alternatives considered**:
+
+- 用 jq 抽 stdin 包一层 shell：增加依赖（jq）+ 多一层进程，没必要
+- 让用户在 plugin.json 里写 jq 表达式：把字符串模板暴露给用户编辑，反人类
+
+**When to revisit**: 如果 Claude Code 后续改用其他传递机制（极不可能短期发生）。

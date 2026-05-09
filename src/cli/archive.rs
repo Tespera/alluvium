@@ -1,7 +1,15 @@
-//! `alluvium archive --session <id>` — the Stop-hook entry point.
+//! `alluvium archive` — the Stop-hook entry point (also reachable manually).
 //!
-//! The hook itself just spawns this process detached. This function runs the
-//! full archive pipeline:
+//! Two invocation modes:
+//!
+//! - **Hook mode** (no `--session` arg): reads the Claude Code Stop hook
+//!   payload from stdin (JSON with `session_id`, `transcript_path`, `cwd`,
+//!   `hook_event_name`, etc.) via [`crate::hook::payload`]. The Stop hook in
+//!   `.claude-plugin/plugin.json` invokes this mode.
+//! - **Manual mode** (`--session <id>`): re-archive a specific session by id.
+//!   `crate::cli::replay` calls into this mode internally.
+//!
+//! Pipeline (after either mode resolves session metadata):
 //!   1. Acquire file lock ([`crate::hook::lock`])
 //!   2. Self-filter check ([`crate::hook::self_filter`])
 //!   3. Merge PreCompact snapshots + final transcript ([`crate::transcript`])
@@ -16,6 +24,6 @@
 
 use anyhow::Result;
 
-pub async fn run(_session_id: &str) -> Result<()> {
+pub async fn run(_session_id: Option<&str>) -> Result<()> {
     anyhow::bail!("alluvium archive: not yet implemented (scaffold v0.1)")
 }

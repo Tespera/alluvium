@@ -10,6 +10,21 @@ You don't save your sessions. Your sessions save themselves.
 
 🚧 **v0.1 in early scaffolding.** Not yet usable.
 
+## Quickstart
+
+Once 0.1 ships:
+
+```bash
+brew install alluvium     # one-time install
+alluvium init             # interactive: vault path, API key, recipe
+                          #   also installs the Claude Code plugin
+```
+
+After that, just keep using Claude Code. Each session ends → distilled
+knowledge appears in your vault. Run `alluvium status` anytime to see what's
+been archived recently. Run `alluvium replay --since 7d` to backfill the past
+week (or `--all` for everything Claude Code has retained).
+
 ## Concept
 
 Most Claude + Obsidian tools either embed Claude inside Obsidian (you ask it to do things) or expose your vault to Claude via MCP (Claude reads/writes when prompted). Alluvium does neither.
@@ -29,6 +44,23 @@ It watches Claude Code sessions end, distills the conversation, and updates a [K
 - Single Rust binary, distributed via Homebrew
 
 See [`docs/`](docs/) for design details.
+
+## Cost
+
+Alluvium calls the Anthropic API once per Claude Code session. Default model
+is **Claude Haiku 4.5** (cheapest tier).
+
+Rough estimate (default `dev-journal` recipe, ~50-message session):
+
+| Granularity         | Tokens                       | Cost      |
+| ------------------- | ---------------------------- | --------- |
+| Per session         | ~50K input / ~2K output      | **~$0.06** |
+| Per day (5 sessions) | —                           | **~$0.30** |
+| Per month           | —                            | **~$9**   |
+
+Switch to Sonnet (better notes, ~5× cost) or another model in
+`~/.config/alluvium/config.toml`. The `verbose` recipe roughly doubles cost;
+`minimalist` halves it.
 
 ## Prior art
 

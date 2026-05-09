@@ -22,11 +22,17 @@ enum Command {
     /// Interactive setup wizard: configure vault, API key, recipe; install Claude Code plugin.
     Init,
 
-    /// Distill a Claude Code session and write to vault. Called by the Stop hook.
+    /// Distill a Claude Code session and write to vault.
+    ///
+    /// Two modes:
+    /// - **Hook mode** (default): no `--session` arg; the binary reads the
+    ///   Claude Code hook payload from stdin (JSON with session_id,
+    ///   transcript_path, cwd, ...).
+    /// - **Manual mode**: pass `--session <id>` to re-archive a specific session.
     Archive {
-        /// Claude Code session id (forwarded by the Stop hook).
+        /// Claude Code session id (only for manual / replay use; hook mode reads stdin).
         #[arg(long)]
-        session: String,
+        session: Option<String>,
     },
 
     /// Re-distill an old session or batch (e.g., after editing prompts).
@@ -78,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Init => alluvium::cli::init::run().await,
-        Command::Archive { session } => alluvium::cli::archive::run(&session).await,
+        Command::Archive { session } => alluvium::cli::archive::run(session.as_deref()).await,
         Command::Replay {
             session,
             since,

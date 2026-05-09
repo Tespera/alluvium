@@ -110,9 +110,41 @@ Claude Code 暴露的事件钩子机制，用于在 session 生命周期中插�
 
 **为什么要 typed relations**：Karpathy 原版用裸 wikilink，丢失了关系语义。三方实现（obsidian-second-brain）已经踩到坑。Alluvium v0.1 就用 typed relations，写 prompt 时让 LLM 输出关系类型。
 
+### YAML 字段命名约定
+
+YAML frontmatter 用 **kebab-case**（`used-by`、`see-also`、`updated-at`）——更 Obsidian / 业界惯例友好。
+
+Rust 内部用 `snake_case`，通过 `#[serde(rename = "used-by")]` 桥接。
+
+**真理来源是 [`templates/frontmatter.yaml.j2`](../templates/frontmatter.yaml.j2)**——该文件长啥样，Rust 必须匹配，反之不行。改 frontmatter 字段时先改模板，再让测试驱动改 Rust 类型。
+
+### 用户手改保留的具体算法
+
+每个 Alluvium 写入的段落用 HTML 注释包裹：
+
+```markdown
+<!-- alluvium:fact id=<short-hash> -->
+## Section title
+
+Body content.
+<!-- alluvium:end -->
+```
+
+merge 时只动**带标记的块内**内容；块外的所有内容（用户手写）原样保留。frontmatter 字段属主划分见 [DECISIONS.md ADR-009](DECISIONS.md)。
+
 ## `wiki/log.md` 格式
 
-append-only，**永远只在尾部加行**：
+按日期分组的时间索引。**Alluvium 只在尾部追加**，永远不修改任何已存在的行。
+
+用户**也可以**在 log.md 里手写自己的笔记（自由形式段落、链接、记录 Claude Code 之外的事），Alluvium 把所有非自动行视为用户内容、不动。
+
+实际写入规则：
+
+- 自动行格式：`- HH:MM <session title> → [[touched]] [[pages]]`
+- 自动行追加到对应日期组（`## YYYY-MM-DD`）末尾；如果该日期组不存在，在文件末尾建一个新日期组
+- 不做时间排序（按到达顺序追加）；用户想排序自己改
+
+示例：
 
 ```markdown
 # Log
@@ -151,6 +183,23 @@ append-only，**永远只在尾部加行**：
 - [[concepts/rust-async-runtimes]]
 
 ……
+```
+
+**Alluvium 写入区**用 HTML 注释标记圈定，用户自己加的内容放在标记之外不动：
+
+```markdown
+# Index
+
+<!-- ALLUVIUM-INDEX-START -->
+## Projects (entities)
+- [[entities/alluvium]] · ...
+
+## Concepts
+- ...
+<!-- ALLUVIUM-INDEX-END -->
+
+## My notes
+（用户手写区，Alluvium 永远不动这里）
 ```
 
 **增量更新规则**：每次 archive 后，**只读受影响 topic 页的 frontmatter**（不读正文！）拼出索引行；这样就算 vault 里有 5000 个 topic 页也不会爆 LLM 上下文。详细算法见 `src/vault/index_updater.rs`。
@@ -218,6 +267,18 @@ Alluvium 的对策：
 - session 的元信息（标题 + 触及页面）→ 一行追加到 `wiki/log.md`
 
 这三件事一起做，才完成一次 archive。
+
+## `wiki/overview.md` 是谁的？
+
+vault 自身的高层执行摘要。
+
+**生命周期**：
+
+- `alluvium init` 时建一个空骨架（标题 + 占位 _"Empty until you write something or run consolidate."_）
+- 之后 **Alluvium 不会自动重写它**——用户可以一直留空、可以手写、可以放任何东西
+- 用户调 `alluvium consolidate` 时，**如果检测到 vault 里有 ≥10 个 topic pages**，会**询问**用户是否让 LLM 重写 overview.md。只有用户明说 "是" 才动
+
+**Why**：overview.md 是用户对 "我这个 vault 是关于什么的" 的解释权。Alluvium 不抢这个解释权。
 
 ## 与 Obsidian 的协作
 
