@@ -50,6 +50,10 @@ fs2 = "0.4"
 tempfile = "3.13"
 directories = "5.0"
 
+# libc (only used by hook::spawn for setsid() on Unix)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Secrets
 keyring = { version = "3.5", features = ["apple-native", "linux-native", "windows-native"] }
 

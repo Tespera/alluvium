@@ -43,6 +43,7 @@ dependencies = [
  "futures-util",
  "gray_matter",
  "keyring",
+ "libc",
  "minijinja",
  "mockito",
  "predicates",
