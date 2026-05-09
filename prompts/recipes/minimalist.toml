@@ -1,26 +1,25 @@
 # Recipe: minimalist
 #
-# Style: only the most important decisions and conclusions. ~10 lines per page max.
-# Best for: users who want a low-noise vault and don't mind losing detail.
+# Style: only the most condensed signal. Decisions and key conclusions, no
+# exposition. Best for users who want a lean vault and don't mind losing
+# narrative detail.
 
 [meta]
 name = "minimalist"
-description = "Only key decisions and conclusions; aggressive compression."
+description = "Only the most condensed signal: decisions and conclusions."
 inherits = "default"
 
 [overrides]
-# Number of ExtractedFacts allowed per session. Default: unlimited.
 max_facts_per_session = 5
-
-# Per-fact body length cap (characters).
 max_body_chars = 400
 
-# Whether to record gotchas/踩坑.
-include_gotchas = false
-
 [prompt_overrides]
-# Prepended to system prompt when this recipe is active.
 extra_system = """
-TODO: implementation pending in v0.1.
-Style guide: terse, declarative, decisions-only. No prose hedging.
+
+RECIPE OVERRIDE — minimalist:
+- Style: terse, declarative, conclusions only. No exposition.
+- Each `body_markdown` at most 1-2 short paragraphs (~400 characters).
+- Drop background, tradeoffs, and examples — that is the verbose recipe's job.
+- Skip `gotcha` and `decision` types unless they are critical to remember.
+- Aim for ≤5 total facts. Quality over quantity.
 """

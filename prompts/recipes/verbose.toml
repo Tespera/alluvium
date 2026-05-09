@@ -1,8 +1,8 @@
 # Recipe: verbose
 #
-# Style: full pedagogical write-up. Concepts get detailed explanations; entities
-# get full background.
-# Best for: research, knowledge-base building, content production.
+# Style: full pedagogical write-up. Code snippets allowed. Each fact is a
+# complete explanation a future reader could understand without prior context.
+# Best for research, knowledge-base building, content production.
 
 [meta]
 name = "verbose"
@@ -12,11 +12,13 @@ inherits = "default"
 [overrides]
 max_facts_per_session = 20
 max_body_chars = 4000
-include_gotchas = true
 
 [prompt_overrides]
 extra_system = """
-TODO: implementation pending in v0.1.
-Style guide: explanatory prose, ~3-5 paragraphs per fact, includes background
-and concrete examples drawn from the transcript.
+
+RECIPE OVERRIDE — verbose:
+- Style: pedagogical write-up. Each fact is a complete explanation a future reader could grasp without prior context.
+- **Code snippets ARE permitted** (use markdown ```language fences). Quote relevant code from the transcript when it illustrates a concept.
+- Each `body_markdown` is 3-6 paragraphs with background, "why", and concrete examples.
+- Up to 20 facts. Comprehensive coverage.
 """

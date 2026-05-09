@@ -1,8 +1,7 @@
-# Recipe: dev-journal
+# Recipe: dev-journal (the default for most users)
 #
-# Style: first-person, "what I figured out today + where I got stuck". Emphasizes
-# decisions and gotchas; lighter on background concept exposition.
-# Best for: solo developers using Alluvium as a working journal.
+# Style: first-person past-tense narrative, decisions + gotchas heavy.
+# Closest match to "what did I learn today" working journal vibe.
 
 [meta]
 name = "dev-journal"
@@ -12,11 +11,15 @@ inherits = "default"
 [overrides]
 max_facts_per_session = 12
 max_body_chars = 1200
-include_gotchas = true
 
 [prompt_overrides]
 extra_system = """
-TODO: implementation pending in v0.1.
-Style guide: first-person past tense ("I tried X, hit Y, ended up doing Z").
-Prioritize gotchas and decisions over abstract explanations.
+
+RECIPE OVERRIDE — dev-journal:
+- Style: first-person past tense ("we tried X, hit Y, ended up Z"). Narrative tone.
+- Prioritize `decision` and `gotcha` facts over abstract concepts.
+- For decisions: include the alternatives considered and why they were rejected.
+- For gotchas: include the surprising bit and the path to figuring it out.
+- Each `body_markdown` is 2-4 paragraphs (~1200 characters max).
+- Aim for ≤12 total facts.
 """

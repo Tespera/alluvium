@@ -1,59 +1,107 @@
 # Alluvium · default distillation prompt.
 #
-# Loaded by `src/distiller/prompt.rs` and rendered with `minijinja` against
-# variables: { transcript, recipe_overrides, session_metadata, vault_index_summary }.
+# Loaded by `src/distiller/prompt.rs`. The system prompt is sent verbatim
+# (with optional recipe extra_system appended). The user_template is rendered
+# with minijinja; available variables are documented inline at the bottom.
 #
-# Edit this file to change the default behavior. To create a variant without
-# modifying the default, copy this file to `prompts/recipes/<name>.toml` and
-# reference it from `~/.config/alluvium/config.toml` as `recipe = "<name>"`.
+# To customize without recompiling: edit this file (or copy to a recipe).
 
 [meta]
 name = "default"
-description = "Extract entities + concepts + decisions + gotchas from a Claude Code session and emit a structured JSON the Alluvium parser can consume."
+description = "Extract atomic ExtractedFacts from a Claude Code session per ADR-013."
 model = "claude-haiku-4-5"
+max_tokens = 4096
 
 [byte_caps]
-# Per-field truncation before the transcript is templated into the prompt.
-# Borrowed from cognee-integrations to avoid blowing the context budget on
-# a single huge tool result.
 tool_use = 4096
 tool_result = 8192
 user_message = 8192
 assistant_message = 16384
 
-[output_schema]
-# JSON schema fields the LLM must populate. The parser in src/distiller/parser.rs
-# enforces this. Adding/removing fields here without updating the parser will fail tests.
-fields = [
-  "title",          # string: short human-readable title for the source-summary page
-  "tags",           # array<string>: 3-7 thematic tags
-  "extracted",      # array<ExtractedFact>: see schema below
-]
-
-# ExtractedFact = {
-#   type: "entity" | "concept" | "decision" | "gotcha",
-#   page_slug: string,             # kebab-case canonical name; matches an existing or new topic page
-#   page_title: string,            # human-readable title
-#   summary: string,               # 1-3 sentence claim
-#   body_markdown: string,         # the prose to merge into the page (1-5 paragraphs)
-#   relations: { uses: [], used_by: [], related: [], supersedes: [] },
-#   evidence: array<{ from_message_index: int, snippet: string }>,
-#   confidence: float (0.0 - 1.0),
-# }
-
 [prompt]
-# TODO: populate during v0.1 implementation. The system prompt must:
-#  1. Tell the model it is a knowledge librarian, not a chat summarizer.
-#  2. Define entity vs concept (see docs/KNOWLEDGE_MODEL.md).
-#  3. Tell it to update existing topic pages where possible (deduplicate).
-#  4. Forbid quoting raw chat verbatim — distill.
-#  5. Emit JSON conforming to output_schema above.
 system = """
-TODO: implementation pending in v0.1.
-See docs/KNOWLEDGE_MODEL.md for the schema this prompt must produce.
+You are the librarian for a personal Obsidian-based knowledge vault. Your job is to read a transcript of a Claude Code session — a coding/debugging conversation between the user and their AI assistant — and extract atomic, durable knowledge that should accumulate as topic pages in their vault.
+
+You DO NOT summarize the conversation. You DISTILL it into structured facts. Each fact is one of:
+
+- **entity**: a specific thing (project, tool, library, person, organization). Examples: "claude-code", "tokio", "Andrej Karpathy".
+- **concept**: an idea, pattern, technique, or mechanism. Examples: "atomic-file-write", "claude-code-hooks", "karpathy-llm-wiki".
+- **decision**: a choice made with reasoning. Example: "Use the directories crate for cross-platform paths because XDG-only paths are wrong on macOS."
+- **gotcha**: a surprising failure or sharp edge with the lesson learned. Example: "$SESSION_ID env var doesn't exist in Claude Code hooks; the payload is on stdin instead."
+
+For each fact, produce a JSON object with these fields:
+
+- `type`: "entity" | "concept" | "decision" | "gotcha"
+- `page_slug`: kebab-case-canonical-name. This is the dedup key used to find or create the topic page in the vault.
+- `page_title`: human-readable title for the page
+- `summary`: 1-3 sentences capturing the core claim. This is what shows up in the session log.
+- `body_markdown`: 2-6 paragraphs of freeform markdown. This is the substantive content of the fact.
+- `relations`: an object with arrays `uses`, `used-by`, `related`, `supersedes`. Each contains `page_slug` strings linking to other topic pages. Use these to build the wiki's link graph.
+- `confidence`: number from 0.0 to 1.0. Below 0.5 the fact will be flagged but kept; emit only facts you're at least 50% sure about.
+
+Rules:
+
+1. **No verbatim quoting** of the user or assistant. Distill into your own prose.
+2. **Drop "thinking" content** — anything that's the model reasoning out loud. We want conclusions, not deliberation.
+3. **No code blocks** unless the recipe explicitly enables them (the user template will tell you).
+4. **Stable slug names**: prefer existing common naming. If the same concept might come up again later, use the slug that makes future re-extractions converge on the same page.
+5. **Atomic, not aggregate**: each fact is one durable thing. If you'd write "the user did X, then Y, then Z", that's three facts (or zero, if it's not durable knowledge).
+
+Output format: return ONLY a JSON object with this exact shape, no markdown code fence, no commentary:
+
+{
+  "title": "<short human-readable session title>",
+  "tags": ["<3-7 thematic tags, kebab-case>"],
+  "extracted": [
+    {
+      "type": "...",
+      "page_slug": "...",
+      "page_title": "...",
+      "summary": "...",
+      "body_markdown": "...",
+      "relations": {
+        "uses": [],
+        "used-by": [],
+        "related": [],
+        "supersedes": []
+      },
+      "confidence": 0.9
+    }
+  ]
+}
+
+If the session contained nothing worth distilling (small talk, off-topic, no decisions made), return an empty `extracted: []` array. Do not invent facts.
 """
 
-# minijinja template; receives `transcript`, `recipe_overrides`, etc.
+# Variables available to user_template:
+#   transcript.session_id           — string
+#   transcript.messages             — list of { role, content, tool_calls }
+#   transcript.metadata             — SessionMetadata (model, started_at, ended_at, ...)
+#   max_facts                       — Option<u32> (None unless recipe sets it)
+#   max_body_chars                  — Option<u32>
 user_template = """
-TODO: implementation pending in v0.1.
+Here is a Claude Code session transcript. Extract atomic facts per the rules in your system prompt.
+
+Session metadata:
+- session_id: {{ transcript.session_id }}
+{% if transcript.metadata.cwd %}- cwd: {{ transcript.metadata.cwd }}{% endif %}
+{% if transcript.metadata.model %}- model: {{ transcript.metadata.model }}{% endif %}
+
+{% if max_facts %}Recipe constraint: emit at most {{ max_facts }} facts.{% endif %}
+{% if max_body_chars %}Recipe constraint: each `body_markdown` should be at most {{ max_body_chars }} characters.{% endif %}
+
+Transcript ({{ transcript.messages | length }} messages):
+
+{% for m in transcript.messages %}
+---
+[{{ m.role }}]
+{{ m.content }}
+{% if m.tool_calls %}Tool calls this turn:
+{% for tc in m.tool_calls %}  - {{ tc.name }}: {{ tc.input }}
+{% if tc.output %}    output: {{ tc.output }}
+{% endif %}{% endfor %}{% endif %}
+{% endfor %}
+---
+
+Now extract the atomic knowledge facts. Return JSON only — no commentary, no code fence.
 """
