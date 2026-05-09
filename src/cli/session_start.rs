@@ -1,7 +1,8 @@
 //! SessionStart hook handler.
 //!
-//! Runs in <50 ms. Reads config, performs self-filter check, writes per-session
-//! `resolved.json` to `~/.cache/alluvium/sessions/<id>/`.
+//! Runs in <50 ms. Reads stdin payload, reads config, performs self-filter
+//! check via [`crate::hook::self_filter::should_skip`], writes per-session
+//! `resolved.json` to `<cache>/sessions/<id>/`.
 //!
 //! See `docs/HOOKS.md` § SessionStart.
 
