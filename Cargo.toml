@@ -56,6 +56,9 @@ keyring = { version = "3.5", features = ["apple-native", "linux-native", "window
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Hashing (for fact_id; non-crypto use, sha256[:8] per ADR-014)
+sha2 = "0.10"
+
 # Errors + logging
 anyhow = "1.0"
 thiserror = "1.0"
