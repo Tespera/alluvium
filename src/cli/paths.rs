@@ -16,6 +16,10 @@ pub const BUNDLED_DISTILL_TOML: &str = include_str!("../../prompts/distill.toml"
 /// `alluvium consolidate` to rewrite fragmented topic pages.
 pub const BUNDLED_CONSOLIDATE_TOML: &str = include_str!("../../prompts/consolidate.toml");
 
+/// Compiled-in copy of `prompts/lint.toml`. Used by `alluvium lint` to
+/// decide MERGE vs KEEP for near-duplicate topic-page pairs.
+pub const BUNDLED_LINT_TOML: &str = include_str!("../../prompts/lint.toml");
+
 /// Compiled-in recipe files.
 pub const BUNDLED_RECIPES: &[(&str, &str)] = &[
     (
@@ -97,6 +101,7 @@ pub fn install_bundled_prompts(prompts_dir: &std::path::Path) -> Result<()> {
         &prompts_dir.join("consolidate.toml"),
         BUNDLED_CONSOLIDATE_TOML,
     )?;
+    write_if_absent_or_unchanged(&prompts_dir.join("lint.toml"), BUNDLED_LINT_TOML)?;
     for (name, content) in BUNDLED_RECIPES {
         write_if_absent_or_unchanged(&recipes_dir.join(format!("{name}.toml")), content)?;
     }

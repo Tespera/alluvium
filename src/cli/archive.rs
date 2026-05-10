@@ -164,9 +164,29 @@ async fn do_archive(resolved: &ResolvedRun, started_at: DateTime<Utc>) -> Result
     let prompts_dir = paths::prompts_dir()?;
     let template = distiller::prompt::load(&resolved.config.default.recipe, &prompts_dir)
         .context("loading prompt template")?;
+
+    // Per LLM_WIKI_DOCTRINE principle 2: feed the LLM the existing wiki
+    // topic index so it can reuse slugs (UPDATE existing pages) rather
+    // than mint parallel slugs for the same topic. Without this, the
+    // wiki accumulates duplicates and stops being a "compounding
+    // artifact" — it becomes a session-by-session dump.
+    let alluvium_root = resolved
+        .config
+        .default
+        .vault_path
+        .join(&resolved.config.default.alluvium_subdir);
+    let existing_topics = wiki::index_scan::scan(&alluvium_root)
+        .context("scanning existing wiki topics for ingest context")?;
+    tracing::info!(
+        topic_count = existing_topics.len(),
+        "archive: existing wiki topics fed to distill prompt"
+    );
+
     let distiller_input = DistillerInput {
         conversation: conversation.clone(),
         recipe_name: resolved.config.default.recipe.clone(),
+        existing_topics,
+        vault_language: resolved.config.default.vault_language.clone(),
     };
     let prompt = distiller::prompt::render(&template, &distiller_input)?;
     let backend = distiller::selection::pick(
@@ -201,12 +221,6 @@ async fn do_archive(resolved: &ResolvedRun, started_at: DateTime<Utc>) -> Result
     if crate::debug_enabled() {
         dump_debug(&resolved.session_id, "distiller_output.json", &output);
     }
-
-    let alluvium_root = resolved
-        .config
-        .default
-        .vault_path
-        .join(&resolved.config.default.alluvium_subdir);
 
     // Save raw transcript copy.
     let raw_basename = format!(

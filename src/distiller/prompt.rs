@@ -155,11 +155,17 @@ pub fn render(tpl: &PromptTemplate, input: &DistillerInput) -> Result<RenderedPr
         .get_template("user")
         .expect("template was just added; lookup must succeed");
 
+    let existing_topics_rendered =
+        crate::wiki::index_scan::render_for_prompt(&input.existing_topics);
+
     let user_message = template
         .render(context! {
             transcript => prepared,
             max_facts => tpl.max_facts_per_session,
             max_body_chars => tpl.max_body_chars,
+            existing_topics => existing_topics_rendered,
+            existing_topics_count => input.existing_topics.len(),
+            vault_language => input.vault_language.clone(),
         })
         .context("rendering user_template (minijinja)")?;
 
@@ -271,6 +277,8 @@ user_template = "USER {{ transcript.session_id }}"
                 },
             },
             recipe_name: "default".into(),
+            existing_topics: Vec::new(),
+            vault_language: None,
         }
     }
 

@@ -19,6 +19,17 @@ use serde::{Deserialize, Serialize};
 pub struct DistillerInput {
     pub conversation: crate::transcript::ConversationData,
     pub recipe_name: String,
+    /// Existing topic pages already in the wiki — fed to the LLM so it
+    /// can reuse slugs / update existing pages instead of minting parallel
+    /// duplicates. Empty on a fresh vault.
+    /// See [LLM_WIKI_DOCTRINE](../../docs/LLM_WIKI_DOCTRINE.md) principle 2.
+    #[serde(default)]
+    pub existing_topics: Vec<crate::wiki::index_scan::TopicEntry>,
+    /// User-configured vault language ("zh" / "en" / "ja" / ...). Steers
+    /// the LLM toward consistent slug language across sessions. `None`
+    /// means "auto-detect from transcript dominant language".
+    #[serde(default)]
+    pub vault_language: Option<String>,
 }
 
 /// What a full distillation yields: session-level title + tags + a list of

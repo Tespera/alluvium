@@ -5,6 +5,7 @@ pub mod archive;
 pub mod consolidate;
 pub mod dry_run;
 pub mod init;
+pub mod lint;
 pub mod paths;
 pub mod pre_compact;
 pub mod replay;

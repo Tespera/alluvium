@@ -13,6 +13,12 @@
 - [x] 文件锁防并发归档
 - [x] 自我引用屏蔽（cwd 检查）
 
+### Karpathy 忠实度（[LLM_WIKI_DOCTRINE.md](LLM_WIKI_DOCTRINE.md) 圣经）
+- [x] **Wiki-aware ingest**：`wiki::index_scan` 扫现有 topic，distill prompt 通过 `existing_topics` 变量注入，LLM 看见就能复用 slug（原则 2）
+- [x] **Episode 过滤**：distill 系统 prompt 明确拒绝 "X 发生了 / 当前状态 Y" 一类事件（原则 5.1）
+- [x] **Lint 命令**：`alluvium lint` / `alluvium lint --apply` 扫近似 topic 对 → LLM 决策 merge/keep → 应用合并 + log.md 记录（原则 3）
+- [x] **Vault 主语言配置**：`config.toml` 加 `vault_language` 字段，注入 prompt 让 LLM 在跨语言时偏向用户主语言（原则 1 子项）
+
 ### Transcript 处理
 - [x] 流式读 `~/.claude/projects/*.jsonl`
 - [x] 重建对话流，过滤 sub-agent 噪声
@@ -39,11 +45,12 @@
 
 ### CLI 命令
 - [x] `alluvium init`（向导：vault 路径 / API key / 选 recipe / 装 plugin）
-- [x] `alluvium archive --session <id>`（Stop hook 调）
+- [x] `alluvium archive --session <id>`（Stop hook 调；wiki-aware ingest）
 - [x] `alluvium replay <id|--since 7d|--all>`（重做旧 session）
 - [x] `alluvium status`（最近 N 次归档摘要）
 - [x] `alluvium dry-run`（蒸馏不写盘）
-- [x] `alluvium consolidate`（**手动**触发 LLM 重写碎片化 topic 页）
+- [x] `alluvium consolidate <slug>`（**手动**触发 LLM 重写单页碎片化 fact-block）
+- [x] `alluvium lint [--apply]`（扫整个 wiki 找近似 topic，LLM 决策合并，dry-run 默认）
 - [x] `alluvium uninstall`
 
 ### Topic 匹配

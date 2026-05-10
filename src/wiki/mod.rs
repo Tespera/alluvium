@@ -9,6 +9,7 @@
 //! resolution (per ADR-006).
 
 pub mod decide;
+pub mod index_scan;
 pub mod locator;
 
 use std::path::PathBuf;

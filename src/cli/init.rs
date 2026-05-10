@@ -86,6 +86,9 @@ pub async fn run() -> Result<()> {
             backend: None, // auto-detect at runtime
             keep_source_summaries: false,
             skip_paths: detect_default_skip_paths(),
+            // Auto-detect from each session's transcript by default.
+            // Power users can hard-set this in config.toml afterward.
+            vault_language: None,
         },
         _reserved_profiles: Default::default(),
     };

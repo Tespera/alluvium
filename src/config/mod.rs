@@ -45,6 +45,13 @@ pub struct ProfileConfig {
     pub keep_source_summaries: bool,
     #[serde(default)]
     pub skip_paths: Vec<PathBuf>,
+    /// Dominant language of the user's vault ("zh" / "en" / "ja" / etc.).
+    /// Threaded through the distill prompt so the LLM picks slug language
+    /// consistently across sessions instead of drifting between e.g.
+    /// `claude-cli-默认后端` vs `claude-cli-default-backend` for the same
+    /// topic. `None` (default) means "auto-detect from transcript".
+    #[serde(default)]
+    pub vault_language: Option<String>,
 }
 
 impl Default for ProfileConfig {
@@ -57,6 +64,7 @@ impl Default for ProfileConfig {
             backend: None,
             keep_source_summaries: false,
             skip_paths: Vec::new(),
+            vault_language: None,
         }
     }
 }
@@ -198,6 +206,7 @@ vault_path = "/v-work"
                 backend: Some("claude-cli".into()),
                 keep_source_summaries: true,
                 skip_paths: vec![PathBuf::from("/skip")],
+                vault_language: Some("zh".into()),
             },
             _reserved_profiles: Default::default(),
         };

@@ -22,6 +22,7 @@ pub mod consolidate;
 pub mod distiller;
 pub mod extraction;
 pub mod hook;
+pub mod lint;
 pub mod log;
 pub mod transcript;
 pub mod vault;

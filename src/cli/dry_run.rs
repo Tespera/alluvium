@@ -41,11 +41,16 @@ pub async fn run() -> Result<()> {
                 prompts_dir.display()
             )
         })?;
+    // dry-run doesn't read the wiki — its job is to preview a single
+    // session's distill output, not to integrate. Empty existing_topics
+    // is intentional.
     let prompt = distiller::prompt::render(
         &template,
         &DistillerInput {
             conversation,
             recipe_name: cfg.default.recipe.clone(),
+            existing_topics: Vec::new(),
+            vault_language: cfg.default.vault_language.clone(),
         },
     )?;
 

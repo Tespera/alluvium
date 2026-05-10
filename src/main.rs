@@ -78,6 +78,18 @@ enum Command {
         slug: String,
     },
 
+    /// Health-check the wiki: find near-duplicate topic pages and ask
+    /// the LLM whether they should be merged.
+    ///
+    /// Default is dry-run (prints suggestions only). Pass `--apply` to
+    /// actually rewrite winners and delete losers.
+    Lint {
+        /// Actually apply the merges. Without this flag, lint is a
+        /// read-only preview.
+        #[arg(long)]
+        apply: bool,
+    },
+
     /// SessionStart hook handler.
     SessionStart,
 
@@ -116,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Status => alluvium::cli::status::run().await,
         Command::DryRun => alluvium::cli::dry_run::run().await,
         Command::Consolidate { slug } => alluvium::cli::consolidate::run(&slug).await,
+        Command::Lint { apply } => alluvium::cli::lint::run(apply).await,
         Command::SessionStart => alluvium::cli::session_start::run().await,
         Command::PreCompact => alluvium::cli::pre_compact::run().await,
         Command::SessionEnd => alluvium::cli::session_end::run().await,

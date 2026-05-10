@@ -1,6 +1,8 @@
 # Alluvium · 项目宪法
 
-> 你（AI）每次进入这个仓库，**先读这份文件**。这里是项目的核心约束。任何与本文件冲突的实现都是错的——遇到分歧请向用户提问，**不要自行决定推翻这里的约定**。
+> 你（AI）每次进入这个仓库，**先读这份文件，再读 [docs/LLM_WIKI_DOCTRINE.md](docs/LLM_WIKI_DOCTRINE.md)**。
+> 后者是产品圣经（Karpathy LLM Wiki 模式的忠实落地原则），是判断"实现是否对路"的最终标尺。
+> 任何与本文件或圣经冲突的实现都是错的——遇到分歧请向用户提问，**不要自行决定推翻这里的约定**。
 
 ## 一句话
 
@@ -67,6 +69,10 @@ SessionEnd    →  清理临时文件
 - ❌ "顺手"加 v0.2+ 才该做的功能（multi-profile / embeddings dedup / scheduled consolidate / proactive discovery）。看 [docs/V01_SCOPE.md](docs/V01_SCOPE.md)。
 - ❌ 把 `index.md` 全量重写（**增量更新**：抽各 topic 页 frontmatter 拼，不读正文，避免上下文爆炸）
 - ❌ 主动新建 dataset / profile / vault layout 变体（**v0.1 单 profile 单 vault**，配置文件结构留好门即可）
+- ❌ **Distill 时 LLM 看不到现有 wiki**（违反 [LLM_WIKI_DOCTRINE](docs/LLM_WIKI_DOCTRINE.md) 原则 2 — 必须把 existing topics 喂给 prompt，让 LLM 复用 slug 而不是凭空创造）
+- ❌ **没有 lint 操作**（违反原则 3 — 没 lint 的 wiki 一周就烂；不是 v0.2 推迟项）
+- ❌ **把 episode 类（"X 发生了 / 当前状态 Y"）写进 concepts/**（违反原则 5.1 — episode 进 log.md，不进 wiki）
+- ❌ **跨语言/写法的 slug 飘任其发生**（"claude-cli-默认后端" / "claude-cli-后端默认" / "claude-cli-backend-default" 共存——是原则 1 失败的具体表现）
 
 ## v0.1 范围
 
@@ -86,10 +92,11 @@ SessionEnd    →  清理临时文件
 CLAUDE.md                        ← 你在读这个（项目宪法）
 README.md                        公开 README（English）
 docs/
+  LLM_WIKI_DOCTRINE.md           ★ 产品圣经：Karpathy 模式忠实落地的 5 条原则
   ARCHITECTURE.md                模块图 + 数据流
-  KNOWLEDGE_MODEL.md             Karpathy wiki 在 vault 里的具体长法
+  KNOWLEDGE_MODEL.md             vault 内具体目录/文件长法（实现层）
   HOOKS.md                       4 个 hook 的契约 + 工程模式
-  DECISIONS.md                   ADR 决策记录（共 8 条）
+  DECISIONS.md                   ADR 决策记录
   V01_SCOPE.md                   v0.1 IN / OUT 清单
   PRIOR_ART.md                   致谢 + 8+1 同类项目对比
   CUSTOMIZING_PROMPTS.md         面向终端用户（占位）

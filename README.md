@@ -36,9 +36,17 @@ alluvium replay --since 7d
 ```
 
 After that, just keep using Claude Code. Each session ends → distilled
-knowledge appears in your vault. Run `alluvium status` anytime to see
-what's been archived. Run `alluvium dry-run` to preview the next
-distillation without writing anything.
+knowledge appears in your vault, **integrated into existing topic pages**
+(not piled up as new files). The LLM reads your wiki's existing-topics
+index before extracting facts, so a session about "atomic file writes"
+adds to the existing `atomic-write` page instead of creating a parallel
+`atomic-file-write` / `file-atomic-write` / `三向-原子写盘` zoo.
+
+Run `alluvium status` to see recent archives. Run `alluvium dry-run` to
+preview the next distillation without writing. Run `alluvium lint`
+periodically — it scans the wiki for near-duplicate pages that snuck
+through and asks the LLM whether to merge them; pass `--apply` to
+actually do it.
 
 ## Concept
 
