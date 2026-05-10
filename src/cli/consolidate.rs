@@ -39,7 +39,12 @@ pub async fn run(slug: &str) -> Result<()> {
         "consolidate: starting"
     );
 
-    let prompt_path = paths::prompts_dir()?.join("consolidate.toml");
+    // Idempotent — defends users who init'd at an earlier version that
+    // didn't bundle consolidate.toml.
+    let prompts_dir = paths::prompts_dir()?;
+    paths::install_bundled_prompts(&prompts_dir)
+        .context("ensuring bundled prompt files are present")?;
+    let prompt_path = prompts_dir.join("consolidate.toml");
 
     match consolidate::consolidate_page(&path, backend.as_ref(), &prompt_path).await? {
         Some(out) => {

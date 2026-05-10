@@ -27,7 +27,14 @@ pub async fn run(apply: bool) -> Result<()> {
 
     let backend =
         distiller::selection::pick(cfg.default.backend.as_deref(), cfg.default.model.as_deref())?;
-    let prompt_path = paths::prompts_dir()?.join("lint.toml");
+
+    // Idempotent — only writes prompt files that don't already exist.
+    // Defends users who ran `alluvium init` at an earlier version (when
+    // `lint.toml` wasn't bundled) from a confusing "no such file" error.
+    let prompts_dir = paths::prompts_dir()?;
+    paths::install_bundled_prompts(&prompts_dir)
+        .context("ensuring bundled prompt files are present")?;
+    let prompt_path = prompts_dir.join("lint.toml");
 
     let mode = if apply { "apply" } else { "dry-run" };
     tracing::info!(mode = %mode, backend = %backend.kind(), "lint: starting");

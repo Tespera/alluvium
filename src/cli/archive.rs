@@ -161,7 +161,12 @@ async fn do_archive(resolved: &ResolvedRun, started_at: DateTime<Utc>) -> Result
     };
 
     // Distill.
+    // Idempotent — defends users who init'd at an earlier version (e.g.
+    // before `consolidate.toml` / `lint.toml` were bundled) from a
+    // "no such file" error when those commands run later.
     let prompts_dir = paths::prompts_dir()?;
+    paths::install_bundled_prompts(&prompts_dir)
+        .context("ensuring bundled prompt files are present")?;
     let template = distiller::prompt::load(&resolved.config.default.recipe, &prompts_dir)
         .context("loading prompt template")?;
 
