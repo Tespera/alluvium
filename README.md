@@ -8,9 +8,14 @@ You don't save your sessions. Your sessions save themselves.
 
 ## Status
 
-🟡 **v0.1.0 alpha** — end-to-end pipeline functional; manual install.
-Real-world usage feedback welcome. See [`CHANGELOG.md`](CHANGELOG.md) for
-what works and what's deferred to v0.2.
+🟢 **v0.1.0** — full Karpathy LLM-Wiki algorithm implemented end-to-end:
+wiki-aware ingest (LLM sees existing topics, reuses slugs instead of
+minting parallel duplicates), episode filter, `alluvium lint` for
+periodic deduplication, all backed by 327+ unit tests + 18 e2e tests.
+Manual install for now (Homebrew formula written but tap not yet
+published). See [`CHANGELOG.md`](CHANGELOG.md) for the full feature
+matrix and [`docs/LLM_WIKI_DOCTRINE.md`](docs/LLM_WIKI_DOCTRINE.md)
+for the product philosophy.
 
 ## Quickstart (v0.1 alpha)
 
