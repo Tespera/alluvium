@@ -195,13 +195,57 @@ fn page_path(alluvium_root: &Path, t: &index_scan::TopicEntry) -> PathBuf {
         .join(format!("{}.md", t.slug))
 }
 
-/// Score two topics for "are they near-duplicates?". Mirrors the ingest
-/// fuzzy heuristic (slug + title, normalized Levenshtein) but the
-/// threshold is looser since the LLM provides the safety net.
+/// Score two topics for "are they near-duplicates?".
+///
+/// Three independent axes; the pair fires if ANY axis says "similar":
+///
+/// 1. Slug Levenshtein on normalized slugs.
+/// 2. Title Levenshtein on normalized titles.
+/// 3. **Body bigram Jaccard** on `summary` text. This is the cross-language
+///    rescue — a page about "95/5 UI principle" and one about
+///    "ui-design-95-percent-principle" can have almost no slug/title
+///    overlap (Chinese vs English) but share enough technical terms in
+///    their bodies to fire. Without (3), every cross-language duplicate
+///    slips past lint.
 fn score_pair(a: &index_scan::TopicEntry, b: &index_scan::TopicEntry) -> f32 {
     let slug_score = string_similarity(&normalize(&a.slug), &normalize(&b.slug));
     let title_score = string_similarity(&normalize(&a.title), &normalize(&b.title));
-    slug_score.max(title_score)
+    let body_score = bigram_jaccard(&a.summary, &b.summary);
+    slug_score.max(title_score).max(body_score)
+}
+
+/// Jaccard similarity over character bigrams: `|A∩B| / |A∪B|`.
+///
+/// Char bigrams (not word tokens) work for both English ("at-om" / "to-mi"
+/// / "om-ic") and CJK ("原-子" / "子-写" / "写-入") without needing a
+/// language-aware tokenizer. Empty inputs score 0 (treated as "no overlap"
+/// — better than 1.0, which would false-positive on every empty-summary
+/// pair). Returns the *coefficient* in [0,1].
+fn bigram_jaccard(a: &str, b: &str) -> f32 {
+    let ba = bigram_set(a);
+    let bb = bigram_set(b);
+    if ba.is_empty() || bb.is_empty() {
+        return 0.0;
+    }
+    let intersection = ba.intersection(&bb).count();
+    let union = ba.union(&bb).count();
+    if union == 0 {
+        return 0.0;
+    }
+    intersection as f32 / union as f32
+}
+
+fn bigram_set(s: &str) -> std::collections::HashSet<(char, char)> {
+    let chars: Vec<char> = s
+        .chars()
+        .map(|c| c.to_lowercase().next().unwrap_or(c))
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let mut out = std::collections::HashSet::with_capacity(chars.len().saturating_sub(1));
+    for w in chars.windows(2) {
+        out.insert((w[0], w[1]));
+    }
+    out
 }
 
 fn normalize(s: &str) -> String {
@@ -515,6 +559,65 @@ mod tests {
         let b = topic("database-schemas", "concepts", "Database Schemas");
         let s = score_pair(&a, &b);
         assert!(s < CANDIDATE_THRESHOLD, "expected no match, got {s}");
+    }
+
+    fn topic_with_summary(
+        slug: &str,
+        kind: &str,
+        title: &str,
+        summary: &str,
+    ) -> index_scan::TopicEntry {
+        index_scan::TopicEntry {
+            slug: slug.into(),
+            kind: kind.into(),
+            title: title.into(),
+            summary: summary.into(),
+        }
+    }
+
+    /// The cross-language case that motivated body Jaccard scoring:
+    /// two pages about the same UI design principle, one Chinese-titled
+    /// and one English-titled. Slug + title fuzzy alone says "different";
+    /// body Jaccard catches the shared technical vocabulary.
+    #[test]
+    fn score_high_for_cross_language_via_body_jaccard() {
+        let a = topic_with_summary(
+            "ui-design-95-percent-principle",
+            "concepts",
+            "UI Design 95% Principle",
+            "Optimize the deployment UI for the 95% success path. Failures get visible UI; success stays minimal — no permanent panel cluttering the screen.",
+        );
+        let b = topic_with_summary(
+            "部署-UI-95-原则-错误框架",
+            "concepts",
+            "部署 UI 95 原则",
+            "Optimize the deployment UI for the 95% success path. Failures get visible UI; success stays minimal — no permanent panel cluttering the screen.",
+        );
+        let s = score_pair(&a, &b);
+        assert!(
+            s >= CANDIDATE_THRESHOLD,
+            "cross-language pair with similar body should fire, got {s}"
+        );
+    }
+
+    #[test]
+    fn jaccard_returns_zero_for_empty() {
+        assert_eq!(bigram_jaccard("", ""), 0.0);
+        assert_eq!(bigram_jaccard("abc", ""), 0.0);
+    }
+
+    #[test]
+    fn jaccard_returns_one_for_identical() {
+        assert!((bigram_jaccard("hello world", "hello world") - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn jaccard_low_for_unrelated() {
+        let s = bigram_jaccard(
+            "the quick brown fox jumps over the lazy dog",
+            "lorem ipsum dolor sit amet consectetur adipiscing",
+        );
+        assert!(s < 0.2, "unrelated text should score <0.2; got {s}");
     }
 
     #[test]
