@@ -37,19 +37,31 @@ use crate::wiki::index_scan;
 
 /// Per-axis thresholds for "is this pair a candidate?". A pair fires if
 /// **any single axis** crosses its threshold — they're independent
-/// signals, not conditions. Lower than the ingest fuzzy threshold (0.75)
-/// because lint should be aggressive about *surfacing* candidates; the
-/// LLM has the final say and can always vote KEEP.
+/// signals, not conditions. The LLM has the final MERGE/KEEP say, so
+/// we calibrate aggressively on the surfacing side.
 ///
-/// The body Jaccard threshold is much lower (0.30) than slug/title
-/// (0.65): bigram Jaccard on 1–3-sentence summaries lands in the
-/// 0.20–0.45 range even for clearly-same-topic pairs that just phrase
-/// the idea differently, and 0.30 has been calibrated against a
-/// real-world vault to fire on the cross-language cluster while not
-/// false-positiving on unrelated topics that happen to share common
-/// words.
+/// Three body axes (any one fires the pair):
+///   - **bigram Jaccard** on the summary string. Catches typos and
+///     same-language paraphrases. Loose threshold because short
+///     summaries have noisy bigram distributions.
+///   - **CJK-char Jaccard** on summary chars in U+4E00..=U+9FFF. Each
+///     CJK character is roughly word-level, so single-char overlap is
+///     a far stronger signal than ASCII single-char. This is the
+///     primary catch-net for Chinese same-topic pairs that phrase the
+///     idea differently — empirically the 95/5 vault cluster lands
+///     here (≈0.45 char Jaccard despite ≈0.10 bigram Jaccard).
+///   - **ASCII-word Jaccard** on whitespace-split tokens ≥3 chars,
+///     lowercased. Mirror of the CJK axis for English/Latin scripts.
 const SLUG_TITLE_THRESHOLD: f32 = 0.65;
-const BODY_JACCARD_THRESHOLD: f32 = 0.30;
+const BIGRAM_JACCARD_THRESHOLD: f32 = 0.20;
+// CJK 0.10 looks low but is calibrated to a real-vault observation: same-
+// topic pages with rephrased prose (the "95/5 deploy UI" cluster) score
+// 0.10–0.15 on CJK char Jaccard while clearly-unrelated pairs sit
+// 0.04–0.08. The LLM has the final say on MERGE/KEEP, so a permissive
+// pre-filter trades cost for recall — better to spend a few extra LLM
+// calls than to miss obvious semantic duplicates.
+const CJK_CHAR_JACCARD_THRESHOLD: f32 = 0.10;
+const ASCII_WORD_JACCARD_THRESHOLD: f32 = 0.30;
 
 /// One candidate pair to send to the LLM.
 #[derive(Debug, Clone)]
@@ -151,7 +163,28 @@ pub async fn run_lint(
     let candidates = collect_candidates(alluvium_root)?;
     let mut rows = Vec::with_capacity(candidates.len());
 
+    // Pages that have been merged away during this run. Subsequent pairs
+    // touching one of these would error out (file gone) — skip them
+    // cleanly with a "superseded by earlier merge" reason instead.
+    let mut deleted: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+
     for pair in candidates {
+        if deleted.contains(&pair.path_a) || deleted.contains(&pair.path_b) {
+            rows.push(LintReportRow {
+                pair: pair.clone(),
+                decision: LintDecision {
+                    decision: "keep".into(),
+                    winning_slug: None,
+                    merged_body: None,
+                    reason: Some(
+                        "skipped — one of the pages was merged away earlier in this run".into(),
+                    ),
+                },
+                applied: false,
+            });
+            continue;
+        }
+
         let decision = match decide_pair(&pair, backend, prompt_template_path).await {
             Ok(d) => d,
             Err(err) => {
@@ -172,7 +205,19 @@ pub async fn run_lint(
 
         let applied = if apply && decision.decision == "merge" {
             match apply_merge(alluvium_root, &pair, &decision) {
-                Ok(()) => true,
+                Ok(()) => {
+                    // Track which page was deleted so subsequent pairs
+                    // touching it skip the LLM round-trip.
+                    if let Some(winner_slug) = decision.winning_slug.as_deref() {
+                        let loser_path = if pair.slug_a == winner_slug {
+                            pair.path_b.clone()
+                        } else {
+                            pair.path_a.clone()
+                        };
+                        deleted.insert(loser_path);
+                    }
+                    true
+                }
                 Err(err) => {
                     tracing::error!(
                         slug_a = %pair.slug_a,
@@ -224,16 +269,75 @@ fn page_path(alluvium_root: &Path, t: &index_scan::TopicEntry) -> PathBuf {
 fn candidate_score(a: &index_scan::TopicEntry, b: &index_scan::TopicEntry) -> Option<f32> {
     let slug_score = string_similarity(&normalize(&a.slug), &normalize(&b.slug));
     let title_score = string_similarity(&normalize(&a.title), &normalize(&b.title));
-    let body_score = bigram_jaccard(&a.summary, &b.summary);
+    let bigram_score = bigram_jaccard(&a.summary, &b.summary);
+    let cjk_score = cjk_char_jaccard(&a.summary, &b.summary);
+    let ascii_score = ascii_word_jaccard(&a.summary, &b.summary);
 
     let fires = slug_score >= SLUG_TITLE_THRESHOLD
         || title_score >= SLUG_TITLE_THRESHOLD
-        || body_score >= BODY_JACCARD_THRESHOLD;
+        || bigram_score >= BIGRAM_JACCARD_THRESHOLD
+        || cjk_score >= CJK_CHAR_JACCARD_THRESHOLD
+        || ascii_score >= ASCII_WORD_JACCARD_THRESHOLD;
     if fires {
-        Some(slug_score.max(title_score).max(body_score))
+        Some(
+            slug_score
+                .max(title_score)
+                .max(bigram_score)
+                .max(cjk_score)
+                .max(ascii_score),
+        )
     } else {
         None
     }
+}
+
+/// Jaccard over the *set* of CJK code points (U+4E00..=U+9FFF) in each
+/// string. Tuned for Chinese / Japanese kanji where individual characters
+/// carry word-level meaning, so a single-char set Jaccard is a much
+/// stronger signal than bigram Jaccard.
+fn cjk_char_jaccard(a: &str, b: &str) -> f32 {
+    let sa: std::collections::HashSet<char> = a.chars().filter(is_cjk).collect();
+    let sb: std::collections::HashSet<char> = b.chars().filter(is_cjk).collect();
+    if sa.is_empty() || sb.is_empty() {
+        return 0.0;
+    }
+    let inter = sa.intersection(&sb).count() as f32;
+    let union = sa.union(&sb).count() as f32;
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
+    }
+}
+
+fn is_cjk(c: &char) -> bool {
+    matches!(*c, '\u{4E00}'..='\u{9FFF}')
+}
+
+/// Jaccard over lowercase ASCII word tokens of length ≥3. Mirrors
+/// [`cjk_char_jaccard`] for Latin-script content. Filtering short tokens
+/// drops "the" / "and" / "a" stopwords that would otherwise blow out
+/// the union and depress the score for any English text.
+fn ascii_word_jaccard(a: &str, b: &str) -> f32 {
+    let sa = ascii_word_set(a);
+    let sb = ascii_word_set(b);
+    if sa.is_empty() || sb.is_empty() {
+        return 0.0;
+    }
+    let inter = sa.intersection(&sb).count() as f32;
+    let union = sa.union(&sb).count() as f32;
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
+    }
+}
+
+fn ascii_word_set(s: &str) -> std::collections::HashSet<String> {
+    s.split(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+        .filter(|t| t.len() >= 3 && t.is_ascii())
+        .map(|t| t.to_lowercase())
+        .collect()
 }
 
 /// Jaccard similarity over character bigrams: `|A∩B| / |A∪B|`.
@@ -643,6 +747,58 @@ mod tests {
             "lorem ipsum dolor sit amet consectetur adipiscing",
         );
         assert!(s < 0.2, "unrelated text should score <0.2; got {s}");
+    }
+
+    #[test]
+    fn cjk_char_jaccard_above_threshold_for_same_topic_differently_phrased() {
+        // Real-world cluster signature: two summaries about the same UI
+        // design principle, both Chinese, very different prose. CJK
+        // single-char Jaccard sits around 0.10–0.15 — the threshold was
+        // calibrated to land just below this.
+        let a =
+            "我们讨论了多个部署面板方案，转折点是用户95%的时间不想看日志。UI的存在本身就是打扰。";
+        let b =
+            "尝试了5种UI方案，每一种都因为在95%成功路径上强行放一块UI而被否决，对用户是认知负担。";
+        let s = cjk_char_jaccard(a, b);
+        assert!(
+            s >= CJK_CHAR_JACCARD_THRESHOLD,
+            "same-topic Chinese pair should fire CJK Jaccard, got {s}"
+        );
+    }
+
+    #[test]
+    fn cjk_char_jaccard_below_threshold_for_unrelated_chinese() {
+        let a = "数据库设计需要考虑事务隔离级别和并发读写。";
+        let b = "前端组件的样式应该走 Tailwind 而不是写自定义 CSS。";
+        let s = cjk_char_jaccard(a, b);
+        assert!(
+            s < CJK_CHAR_JACCARD_THRESHOLD,
+            "unrelated Chinese pair must not fire CJK Jaccard, got {s}"
+        );
+    }
+
+    #[test]
+    fn cjk_char_jaccard_zero_for_pure_ascii() {
+        let s = cjk_char_jaccard("hello world", "good morning");
+        assert_eq!(s, 0.0);
+    }
+
+    #[test]
+    fn ascii_word_jaccard_high_for_shared_keywords() {
+        let a = "Rust ownership rules prevent data races at compile time.";
+        let b = "Rust ownership and borrow checker prevent races at compile time.";
+        let s = ascii_word_jaccard(a, b);
+        assert!(s >= ASCII_WORD_JACCARD_THRESHOLD, "got {s}");
+    }
+
+    #[test]
+    fn ascii_word_jaccard_drops_short_stopwords() {
+        // The two sentences share only "the" / "and" / "a" — all length
+        // <3 so they're filtered out. Score should be near zero.
+        let a = "the cat sat on the mat";
+        let b = "and a dog ran in the rain";
+        let s = ascii_word_jaccard(a, b);
+        assert!(s < 0.2, "stopword-only overlap should not fire; got {s}");
     }
 
     #[test]
