@@ -15,7 +15,12 @@ what works and what's deferred to v0.2.
 ## Quickstart (v0.1 alpha)
 
 ```bash
-# 1. Install (Homebrew formula coming in v0.2; for now build from source)
+# 1. Install (pick one — the Homebrew tap is prepared but not yet published;
+#    once the v0.1.0 GitHub release lands, `brew tap Tespera/alluvium` will work.
+#    Until then, build from source.)
+cargo install --git https://github.com/Tespera/alluvium
+
+# or, from a local checkout:
 git clone https://github.com/Tespera/alluvium
 cd alluvium
 cargo install --path .

@@ -12,6 +12,10 @@ use std::path::PathBuf;
 /// Compiled-in copy of `prompts/distill.toml`.
 pub const BUNDLED_DISTILL_TOML: &str = include_str!("../../prompts/distill.toml");
 
+/// Compiled-in copy of `prompts/consolidate.toml`. Used by
+/// `alluvium consolidate` to rewrite fragmented topic pages.
+pub const BUNDLED_CONSOLIDATE_TOML: &str = include_str!("../../prompts/consolidate.toml");
+
 /// Compiled-in recipe files.
 pub const BUNDLED_RECIPES: &[(&str, &str)] = &[
     (
@@ -73,6 +77,13 @@ pub fn session_snapshots_dir(session_id: &str) -> Result<PathBuf> {
     Ok(session_cache_dir(session_id)?.join("snapshots"))
 }
 
+/// Per-session debug dump directory under the data dir. Used by the
+/// `--debug` flag in `alluvium archive`. Not auto-cleaned — users can
+/// `rm -rf` once they're done inspecting.
+pub fn debug_dir(session_id: &str) -> Result<PathBuf> {
+    Ok(data_dir()?.join("debug").join(session_id))
+}
+
 /// Write the bundled prompt files out to `<config>/prompts/`. Idempotent —
 /// won't clobber a file the user has edited (we check sha256-ish equality
 /// loosely by comparing contents). Used by `alluvium init`.
@@ -82,6 +93,10 @@ pub fn install_bundled_prompts(prompts_dir: &std::path::Path) -> Result<()> {
         .with_context(|| format!("creating {}", recipes_dir.display()))?;
 
     write_if_absent_or_unchanged(&prompts_dir.join("distill.toml"), BUNDLED_DISTILL_TOML)?;
+    write_if_absent_or_unchanged(
+        &prompts_dir.join("consolidate.toml"),
+        BUNDLED_CONSOLIDATE_TOML,
+    )?;
     for (name, content) in BUNDLED_RECIPES {
         write_if_absent_or_unchanged(&recipes_dir.join(format!("{name}.toml")), content)?;
     }

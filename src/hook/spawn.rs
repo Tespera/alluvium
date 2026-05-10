@@ -13,15 +13,23 @@
 //! flag; not implemented in v0.1 (we only target Unix).
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Spawn `alluvium archive --session <session_id>` as a detached background
 /// process and return immediately.
 ///
+/// `cwd` is set as the child's working directory so `self_filter` (which
+/// reads `std::env::current_dir()` in manual mode) sees the session's
+/// project dir, not whatever Claude Code's hook process happened to inherit.
+///
 /// `binary_override` is for tests; in production callers pass `None` and the
 /// current executable is used.
-pub fn spawn_archive_detached(session_id: &str, binary_override: Option<PathBuf>) -> Result<()> {
+pub fn spawn_archive_detached(
+    session_id: &str,
+    cwd: &Path,
+    binary_override: Option<PathBuf>,
+) -> Result<()> {
     let exe = match binary_override {
         Some(p) => p,
         None => std::env::current_exe().context("locating current alluvium executable")?,
@@ -31,6 +39,7 @@ pub fn spawn_archive_detached(session_id: &str, binary_override: Option<PathBuf>
     cmd.arg("archive")
         .arg("--session")
         .arg(session_id)
+        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -81,7 +90,7 @@ mod tests {
             return;
         }
         let start = std::time::Instant::now();
-        spawn_archive_detached("test-session", Some(exe)).unwrap();
+        spawn_archive_detached("test-session", Path::new("/tmp"), Some(exe)).unwrap();
         let elapsed = start.elapsed();
         assert!(
             elapsed.as_millis() < 500,
@@ -93,6 +102,7 @@ mod tests {
     fn spawn_returns_error_when_binary_missing() {
         let result = spawn_archive_detached(
             "x",
+            Path::new("/tmp"),
             Some(PathBuf::from("/this/path/definitely/does/not/exist")),
         );
         assert!(result.is_err());
@@ -118,6 +128,6 @@ mod tests {
         // child, which detached spawn explicitly forbids. The fact that spawn
         // returns at all confirms stdin was set to null (otherwise we'd
         // inherit and the test runner's stdin state would matter).
-        spawn_archive_detached("x", Some(exe)).unwrap();
+        spawn_archive_detached("x", Path::new("/tmp"), Some(exe)).unwrap();
     }
 }

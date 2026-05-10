@@ -27,9 +27,20 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::process::Command;
 
 use crate::distiller::backend::{LlmBackend, LlmResponse, RenderedPrompt};
+
+/// Hard ceiling on how long we wait for `claude -p` to return. Empirically
+/// successful runs finish in 5-30 s; observed pathology is a hang of several
+/// minutes that ends with truncated stdout and exit 0 — masquerading as a
+/// successful call. Capping at 3 min turns that into a clear timeout error
+/// instead of garbage propagating into the parser.
+///
+/// Override with `ALLUVIUM_CLAUDE_CLI_TIMEOUT_SECS` (undocumented, advanced).
+const DEFAULT_TIMEOUT_SECS: u64 = 180;
+const TIMEOUT_OVERRIDE_ENV: &str = "ALLUVIUM_CLAUDE_CLI_TIMEOUT_SECS";
 
 #[derive(Debug, Clone)]
 pub struct ClaudeCliBackend {
@@ -87,12 +98,30 @@ impl LlmBackend for ClaudeCliBackend {
             .env("ALLUVIUM_DISTILLING", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            // If we drop the child handle (e.g. on timeout), SIGKILL it.
+            // Otherwise the orphaned `claude -p` would keep tying up an API
+            // session in the background.
+            .kill_on_drop(true);
 
-        let output = cmd
-            .output()
-            .await
-            .with_context(|| format!("running {} -p", self.binary.display()))?;
+        let child = cmd
+            .spawn()
+            .with_context(|| format!("spawning {} -p", self.binary.display()))?;
+
+        let timeout = resolve_timeout();
+        let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
+            Ok(Ok(out)) => out,
+            Ok(Err(e)) => {
+                return Err(e).with_context(|| format!("waiting on {} -p", self.binary.display()))
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "claude -p timed out after {}s — likely a hung CLI call. \
+                     Investigate or override with {TIMEOUT_OVERRIDE_ENV}.",
+                    timeout.as_secs()
+                );
+            }
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -111,6 +140,15 @@ impl LlmBackend for ClaudeCliBackend {
             usage: None,
         })
     }
+}
+
+fn resolve_timeout() -> Duration {
+    let secs = std::env::var(TIMEOUT_OVERRIDE_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_TIMEOUT_SECS);
+    Duration::from_secs(secs)
 }
 
 #[cfg(test)]
@@ -158,5 +196,41 @@ mod tests {
     #[test]
     fn kind_is_claude_cli() {
         assert_eq!(ClaudeCliBackend::new().kind(), "claude-cli");
+    }
+
+    #[tokio::test]
+    async fn slow_binary_is_killed_after_timeout() {
+        // Drop a small shell script that ignores its args and sleeps 60 s.
+        // The script substitutes for a "hung" claude -p so we can observe
+        // that the timeout path fires and reports a clean error.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("hung_claude.sh");
+        std::fs::write(&script, "#!/bin/sh\nsleep 60\n").unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        // Shrink the deadline so the test doesn't actually wait minutes.
+        std::env::set_var(TIMEOUT_OVERRIDE_ENV, "1");
+
+        let backend = ClaudeCliBackend::new().with_binary(script);
+        let start = std::time::Instant::now();
+        let err = backend.complete(&sample_prompt()).await.unwrap_err();
+        let elapsed = start.elapsed();
+
+        std::env::remove_var(TIMEOUT_OVERRIDE_ENV);
+
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("timed out"),
+            "expected timeout error, got: {msg}"
+        );
+        // Generous slack — CI machines vary — but it must NOT have waited
+        // the full 60 s the script was sleeping for.
+        assert!(
+            elapsed.as_secs() < 10,
+            "timeout fired but took too long: {elapsed:?}"
+        );
     }
 }

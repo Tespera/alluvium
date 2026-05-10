@@ -13,6 +13,12 @@ use clap::{Parser, Subcommand};
     long_about = "Alluvium watches Claude Code sessions end, distills the transcript into knowledge, and merges it into a Karpathy-style LLM wiki inside your Obsidian vault. See docs/ for design details."
 )]
 struct Cli {
+    /// Dump distiller input / raw LLM output / parsed output JSON to
+    /// `<data_dir>/debug/<session>/` for post-mortem inspection. Useful when
+    /// archive fails or produces unexpected pages.
+    #[arg(long, global = true)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -33,6 +39,12 @@ enum Command {
         /// Claude Code session id (only for manual / replay use; hook mode reads stdin).
         #[arg(long)]
         session: Option<String>,
+
+        /// Hook entry-point: read stdin payload, spawn a detached worker,
+        /// and return immediately so the Stop hook does not block Claude Code.
+        /// The plugin manifest sets this; users do not pass it manually.
+        #[arg(long)]
+        detached: bool,
     },
 
     /// Re-distill an old session or batch (e.g., after editing prompts).
@@ -56,7 +68,15 @@ enum Command {
     DryRun,
 
     /// Have the LLM rewrite fragmented topic pages into tighter prose.
-    Consolidate,
+    ///
+    /// v0.1 is single-page: pass the slug of the page to consolidate.
+    /// `--all` and scheduled runs are v0.2 work.
+    Consolidate {
+        /// Topic page slug (the filename stem under `wiki/concepts/` or
+        /// `wiki/entities/`). For example, for `wiki/concepts/atomic-write.md`
+        /// pass `atomic-write`.
+        slug: String,
+    },
 
     /// SessionStart hook handler.
     SessionStart,
@@ -81,10 +101,13 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+    alluvium::set_debug_flag(cli.debug);
 
     match cli.command {
         Command::Init => alluvium::cli::init::run().await,
-        Command::Archive { session } => alluvium::cli::archive::run(session.as_deref()).await,
+        Command::Archive { session, detached } => {
+            alluvium::cli::archive::run(session.as_deref(), detached).await
+        }
         Command::Replay {
             session,
             since,
@@ -92,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
         } => alluvium::cli::replay::run(session.as_deref(), since.as_deref(), all).await,
         Command::Status => alluvium::cli::status::run().await,
         Command::DryRun => alluvium::cli::dry_run::run().await,
-        Command::Consolidate => alluvium::cli::consolidate::run().await,
+        Command::Consolidate { slug } => alluvium::cli::consolidate::run(&slug).await,
         Command::SessionStart => alluvium::cli::session_start::run().await,
         Command::PreCompact => alluvium::cli::pre_compact::run().await,
         Command::SessionEnd => alluvium::cli::session_end::run().await,

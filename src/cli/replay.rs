@@ -26,7 +26,7 @@ pub async fn run(session: Option<&str>, since: Option<&str>, all: bool) -> Resul
             total = targets.len(),
             sid = session_id
         );
-        if let Err(err) = super::archive::run(Some(session_id)).await {
+        if let Err(err) = super::archive::run(Some(session_id), false).await {
             tracing::warn!(
                 session = %session_id,
                 error = %format!("{err:#}"),

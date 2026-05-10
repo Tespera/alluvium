@@ -15,11 +15,12 @@
 //! is on PATH) → anthropic (if env var) → openai → deepseek → gemini → error.
 
 use anyhow::Result;
+use serde::Serialize;
 
 use super::TokenUsage;
 
 /// Backend-agnostic prompt to render to whichever LLM is selected.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RenderedPrompt {
     /// System / instruction prompt.
     pub system: String,

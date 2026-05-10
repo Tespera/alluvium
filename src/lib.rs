@@ -26,3 +26,19 @@ pub mod log;
 pub mod transcript;
 pub mod vault;
 pub mod wiki;
+
+use std::sync::OnceLock;
+
+/// Process-wide `--debug` flag. Set once at CLI parse time. When true,
+/// `archive` dumps each pipeline stage's intermediate artifact (rendered
+/// prompt, raw LLM output, parsed output) to `<data_dir>/debug/<session>/`
+/// for post-mortem inspection.
+static DEBUG_FLAG: OnceLock<bool> = OnceLock::new();
+
+pub fn set_debug_flag(value: bool) {
+    let _ = DEBUG_FLAG.set(value);
+}
+
+pub fn debug_enabled() -> bool {
+    *DEBUG_FLAG.get().unwrap_or(&false)
+}

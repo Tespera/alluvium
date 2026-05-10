@@ -62,7 +62,7 @@
 
 ### 分发
 - [x] 单二进制 release build
-- [x] Homebrew formula（待开 tap）
+- [x] Homebrew formula（`extra/Formula/alluvium.rb`，tap 仓库待开）
 
 ### 文档
 - [x] CLAUDE.md（项目宪法）

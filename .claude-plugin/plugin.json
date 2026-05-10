@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "alluvium archive"
+            "command": "alluvium archive --detached"
           }
         ]
       }

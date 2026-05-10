@@ -25,7 +25,7 @@ use crate::cli::paths;
 use crate::config;
 use crate::distiller::{self, DistillerInput, TokenUsage};
 use crate::extraction::ExtractedFact;
-use crate::hook::{lock, payload, self_filter};
+use crate::hook::{lock, payload, self_filter, spawn};
 
 /// Set by `ClaudeCliBackend` on the spawned `claude` subprocess. When
 /// archive runs and finds this in its env, it skips immediately — this
@@ -37,7 +37,7 @@ use crate::transcript::{self, ConversationData};
 use crate::vault;
 use crate::wiki;
 
-pub async fn run(session_id_arg: Option<&str>) -> Result<()> {
+pub async fn run(session_id_arg: Option<&str>, detached: bool) -> Result<()> {
     // Recursion guard: when ClaudeCliBackend spawns `claude -p`, the nested
     // session's Stop hook would land here again — we'd archive ourselves
     // archiving, infinitely. The backend sets this env var; we no-op.
@@ -45,6 +45,17 @@ pub async fn run(session_id_arg: Option<&str>) -> Result<()> {
         tracing::info!(
             "archive: ALLUVIUM_DISTILLING set; this session is a nested distill call, skipping"
         );
+        return Ok(());
+    }
+
+    // `--detached` mode (Stop hook): read stdin payload, fork a detached
+    // worker that re-enters this command in manual mode (`--session <id>`),
+    // return immediately so Claude Code's hook is unblocked. The worker
+    // does the real distillation work in the background.
+    if detached {
+        let p = payload::read_from_stdin().context("reading hook stdin payload")?;
+        spawn::spawn_archive_detached(&p.session_id, &p.cwd, None)
+            .context("spawning detached archive worker")?;
         return Ok(());
     }
 
@@ -93,7 +104,21 @@ async fn resolve_session(session_id_arg: Option<&str>) -> Result<ResolvedRun> {
         }
     };
 
-    let skip_reason = self_filter::should_skip(&cwd, &cfg.default.skip_paths);
+    // Canonicalize both sides before the self-filter check. macOS aliases
+    // /tmp → /private/tmp and /var → /private/var, so a user's `skip_paths`
+    // entry of `/var/folders/.../alluvium` would textually fail to match
+    // a `cwd` that came back as `/private/var/folders/.../alluvium`.
+    // self_filter::should_skip is documented as "expects canonicalized
+    // input"; resolving here keeps that contract honest. Falls back to
+    // the original path if canonicalize fails (e.g. dir doesn't exist).
+    let cwd_canon = std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
+    let skips_canon: Vec<PathBuf> = cfg
+        .default
+        .skip_paths
+        .iter()
+        .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+        .collect();
+    let skip_reason = self_filter::should_skip(&cwd_canon, &skips_canon);
 
     Ok(ResolvedRun {
         session_id,
@@ -139,23 +164,43 @@ async fn do_archive(resolved: &ResolvedRun, started_at: DateTime<Utc>) -> Result
     let prompts_dir = paths::prompts_dir()?;
     let template = distiller::prompt::load(&resolved.config.default.recipe, &prompts_dir)
         .context("loading prompt template")?;
-    let prompt = distiller::prompt::render(
-        &template,
-        &DistillerInput {
-            conversation: conversation.clone(),
-            recipe_name: resolved.config.default.recipe.clone(),
-        },
-    )?;
+    let distiller_input = DistillerInput {
+        conversation: conversation.clone(),
+        recipe_name: resolved.config.default.recipe.clone(),
+    };
+    let prompt = distiller::prompt::render(&template, &distiller_input)?;
     let backend = distiller::selection::pick(
         resolved.config.default.backend.as_deref(),
         resolved.config.default.model.as_deref(),
     )?;
     tracing::info!(backend = %backend.kind(), "archive: distilling");
+
+    // --debug: dump distiller input + rendered prompt before the LLM call.
+    // We write before/after each stage so partial failures still leave
+    // breadcrumbs (e.g. if the LLM call hangs, input.json is already there).
+    if crate::debug_enabled() {
+        dump_debug(
+            &resolved.session_id,
+            "distiller_input.json",
+            &distiller_input,
+        );
+        dump_debug(&resolved.session_id, "rendered_prompt.json", &prompt);
+    }
+
     let response = backend
         .complete(&prompt)
         .await
         .context("calling LLM backend")?;
+
+    if crate::debug_enabled() {
+        dump_debug_text(&resolved.session_id, "llm_raw_output.txt", &response.text);
+    }
+
     let output = distiller::parser::parse(&response.text, response.usage)?;
+
+    if crate::debug_enabled() {
+        dump_debug(&resolved.session_id, "distiller_output.json", &output);
+    }
 
     let alluvium_root = resolved
         .config
@@ -314,10 +359,59 @@ fn find_transcript_by_session_id(session_id: &str) -> Result<PathBuf> {
     anyhow::bail!("no transcript found for session id {session_id}")
 }
 
+/// First 12 chars of the session id — enough to keep distinct UUID
+/// sessions distinct in `raw/sessions/<ts>_<short>.md` filenames while
+/// staying short enough to read at a glance. (UUID v4 first 8 chars are
+/// fully random, so 12 keeps collision probability negligible across a
+/// realistic vault. 8 used to be enough but collided on hand-crafted
+/// session ids in tests; 12 is the smallest bump that fixes that.)
 fn short_session(id: &str) -> String {
-    id.chars().take(8).collect()
+    id.chars().take(12).collect()
 }
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// Write `value` (serialized as pretty JSON) into the debug dir under
+/// `<filename>`. Failures are logged at warn level but never propagated —
+/// debugging artifacts are best-effort and must not break archival.
+fn dump_debug<T: serde::Serialize>(session_id: &str, filename: &str, value: &T) {
+    let Ok(dir) = paths::debug_dir(session_id) else {
+        return;
+    };
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %err, dir = %dir.display(), "debug dump: mkdir failed");
+        return;
+    }
+    match serde_json::to_string_pretty(value) {
+        Ok(s) => {
+            let path = dir.join(filename);
+            if let Err(err) = std::fs::write(&path, s) {
+                tracing::warn!(error = %err, path = %path.display(), "debug dump: write failed");
+            } else {
+                tracing::info!(path = %path.display(), "debug dump: wrote");
+            }
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "debug dump: JSON serialize failed");
+        }
+    }
+}
+
+/// Like `dump_debug` but for raw text (LLM output before parsing).
+fn dump_debug_text(session_id: &str, filename: &str, text: &str) {
+    let Ok(dir) = paths::debug_dir(session_id) else {
+        return;
+    };
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %err, dir = %dir.display(), "debug dump: mkdir failed");
+        return;
+    }
+    let path = dir.join(filename);
+    if let Err(err) = std::fs::write(&path, text) {
+        tracing::warn!(error = %err, path = %path.display(), "debug dump: write failed");
+    } else {
+        tracing::info!(path = %path.display(), "debug dump: wrote");
+    }
 }

@@ -7,5 +7,6 @@
 
 pub mod anthropic;
 pub mod claude_cli;
+pub mod fake;
 pub mod gemini;
 pub mod openai_compatible;

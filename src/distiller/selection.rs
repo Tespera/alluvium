@@ -18,9 +18,15 @@ use std::sync::Arc;
 
 use super::backend::LlmBackend;
 use super::backends::{
-    anthropic::AnthropicBackend, claude_cli::ClaudeCliBackend, gemini::GeminiBackend,
-    openai_compatible::OpenAiCompatibleBackend,
+    anthropic::AnthropicBackend, claude_cli::ClaudeCliBackend, fake::FakeBackend,
+    gemini::GeminiBackend, openai_compatible::OpenAiCompatibleBackend,
 };
+
+/// Test seam: when set to a path, that file's contents are returned as the
+/// LLM response and all real backends are bypassed. Used by e2e tests so
+/// they exercise the full pipeline (transcript → vault) without hitting a
+/// real provider. Undocumented for end users.
+const FAKE_RESPONSE_ENV: &str = "ALLUVIUM_FAKE_LLM_RESPONSE_PATH";
 
 /// What backend to use, as named in `config.toml`'s `[default] backend = "..."`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +70,13 @@ pub fn pick(
     backend_config_str: Option<&str>,
     model_config_str: Option<&str>,
 ) -> Result<Arc<dyn LlmBackend>> {
+    // Test seam — see FAKE_RESPONSE_ENV docstring.
+    if let Ok(path) = std::env::var(FAKE_RESPONSE_ENV) {
+        if !path.is_empty() {
+            return Ok(Arc::new(FakeBackend::new(std::path::PathBuf::from(path))));
+        }
+    }
+
     let kind = match backend_config_str {
         Some(s) => BackendKind::from_config_str(s)
             .ok_or_else(|| anyhow::anyhow!("unknown backend kind: {s:?}; valid: claude-cli, anthropic, openai, deepseek, gemini"))?,
