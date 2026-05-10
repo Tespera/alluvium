@@ -103,7 +103,12 @@ fn read_topic_entry(path: &Path, kind: &str) -> Result<Option<TopicEntry>> {
     }))
 }
 
-const SUMMARY_BUDGET: usize = 200;
+/// Cap on `summary` length. Bigger gives lint's Jaccard scorer more
+/// signal but costs ingest-prompt context. 400 strikes a balance: short
+/// enough to render 100 entries in <40 KB of prompt, long enough that
+/// lint's Jaccard pre-filter can detect cross-language same-topic pairs
+/// whose 1–2-sentence summaries phrase the idea differently.
+const SUMMARY_BUDGET: usize = 400;
 const FACT_OPEN: &str = "<!-- alluvium:fact id=";
 const FACT_OPEN_SUFFIX: &str = " -->";
 const FACT_CLOSE: &str = "<!-- alluvium:end -->";

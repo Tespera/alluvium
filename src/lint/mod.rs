@@ -35,11 +35,21 @@ use crate::distiller::backend::{LlmBackend, RenderedPrompt};
 use crate::vault::{frontmatter, writer};
 use crate::wiki::index_scan;
 
-/// Pairs scoring at or above this go to the LLM. Lower than the ingest
-/// fuzzy threshold (0.75) — lint should be more aggressive about
-/// surfacing candidates because the LLM has the final say (and can
-/// always vote KEEP).
-const CANDIDATE_THRESHOLD: f32 = 0.65;
+/// Per-axis thresholds for "is this pair a candidate?". A pair fires if
+/// **any single axis** crosses its threshold — they're independent
+/// signals, not conditions. Lower than the ingest fuzzy threshold (0.75)
+/// because lint should be aggressive about *surfacing* candidates; the
+/// LLM has the final say and can always vote KEEP.
+///
+/// The body Jaccard threshold is much lower (0.30) than slug/title
+/// (0.65): bigram Jaccard on 1–3-sentence summaries lands in the
+/// 0.20–0.45 range even for clearly-same-topic pairs that just phrase
+/// the idea differently, and 0.30 has been calibrated against a
+/// real-world vault to fire on the cross-language cluster while not
+/// false-positiving on unrelated topics that happen to share common
+/// words.
+const SLUG_TITLE_THRESHOLD: f32 = 0.65;
+const BODY_JACCARD_THRESHOLD: f32 = 0.30;
 
 /// One candidate pair to send to the LLM.
 #[derive(Debug, Clone)]
@@ -114,8 +124,7 @@ pub fn collect_candidates(alluvium_root: &Path) -> Result<Vec<Pair>> {
             // Cross-kind pairs (concept vs entity) are intentionally
             // included — language drift sometimes pushes the same topic
             // into the wrong subdir. The LLM can decide.
-            let score = score_pair(a, b);
-            if score >= CANDIDATE_THRESHOLD {
+            if let Some(score) = candidate_score(a, b) {
                 pairs.push(Pair {
                     path_a: page_path(alluvium_root, a),
                     path_b: page_path(alluvium_root, b),
@@ -195,23 +204,36 @@ fn page_path(alluvium_root: &Path, t: &index_scan::TopicEntry) -> PathBuf {
         .join(format!("{}.md", t.slug))
 }
 
-/// Score two topics for "are they near-duplicates?".
+/// Decide whether two topics are similar enough to send to the LLM.
+/// Returns `Some(reported_score)` if so, `None` otherwise.
 ///
-/// Three independent axes; the pair fires if ANY axis says "similar":
+/// Three independent axes — each has its own threshold because the
+/// score distributions are not comparable:
 ///
-/// 1. Slug Levenshtein on normalized slugs.
-/// 2. Title Levenshtein on normalized titles.
-/// 3. **Body bigram Jaccard** on `summary` text. This is the cross-language
-///    rescue — a page about "95/5 UI principle" and one about
-///    "ui-design-95-percent-principle" can have almost no slug/title
-///    overlap (Chinese vs English) but share enough technical terms in
-///    their bodies to fire. Without (3), every cross-language duplicate
-///    slips past lint.
-fn score_pair(a: &index_scan::TopicEntry, b: &index_scan::TopicEntry) -> f32 {
+/// 1. **Slug Levenshtein** (≥ [`SLUG_TITLE_THRESHOLD`] = 0.65).
+/// 2. **Title Levenshtein** (≥ [`SLUG_TITLE_THRESHOLD`] = 0.65).
+/// 3. **Body bigram Jaccard** on the `summary` text
+///    (≥ [`BODY_JACCARD_THRESHOLD`] = 0.30). This is the cross-language
+///    rescue — same-topic pairs whose slugs/titles are in different
+///    scripts can have near-zero string similarity but still share
+///    enough technical bigrams in their summaries to fire. Without
+///    this axis, every cross-language duplicate slips past lint.
+///
+/// The reported score (for the report column) is the MAX across axes,
+/// so the operator's eye lands on the strongest signal first.
+fn candidate_score(a: &index_scan::TopicEntry, b: &index_scan::TopicEntry) -> Option<f32> {
     let slug_score = string_similarity(&normalize(&a.slug), &normalize(&b.slug));
     let title_score = string_similarity(&normalize(&a.title), &normalize(&b.title));
     let body_score = bigram_jaccard(&a.summary, &b.summary);
-    slug_score.max(title_score).max(body_score)
+
+    let fires = slug_score >= SLUG_TITLE_THRESHOLD
+        || title_score >= SLUG_TITLE_THRESHOLD
+        || body_score >= BODY_JACCARD_THRESHOLD;
+    if fires {
+        Some(slug_score.max(title_score).max(body_score))
+    } else {
+        None
+    }
 }
 
 /// Jaccard similarity over character bigrams: `|A∩B| / |A∪B|`.
@@ -546,19 +568,23 @@ mod tests {
     }
 
     #[test]
-    fn score_high_for_typo_variant() {
+    fn fires_for_slug_typo_variant() {
         let a = topic("github-cdn-409-conflict", "concepts", "GitHub CDN 409");
         let b = topic("gridea-cnd-409-conflict", "concepts", "Gridea CND 409");
-        let s = score_pair(&a, &b);
-        assert!(s >= CANDIDATE_THRESHOLD, "expected to fire, got {s}");
+        assert!(
+            candidate_score(&a, &b).is_some(),
+            "expected pair to fire on slug Levenshtein"
+        );
     }
 
     #[test]
-    fn score_low_for_unrelated() {
+    fn does_not_fire_for_unrelated() {
         let a = topic("alluvium-design", "concepts", "Alluvium Design");
         let b = topic("database-schemas", "concepts", "Database Schemas");
-        let s = score_pair(&a, &b);
-        assert!(s < CANDIDATE_THRESHOLD, "expected no match, got {s}");
+        assert!(
+            candidate_score(&a, &b).is_none(),
+            "unrelated topics must not fire"
+        );
     }
 
     fn topic_with_summary(
@@ -580,7 +606,7 @@ mod tests {
     /// and one English-titled. Slug + title fuzzy alone says "different";
     /// body Jaccard catches the shared technical vocabulary.
     #[test]
-    fn score_high_for_cross_language_via_body_jaccard() {
+    fn fires_for_cross_language_via_body_jaccard() {
         let a = topic_with_summary(
             "ui-design-95-percent-principle",
             "concepts",
@@ -593,10 +619,9 @@ mod tests {
             "部署 UI 95 原则",
             "Optimize the deployment UI for the 95% success path. Failures get visible UI; success stays minimal — no permanent panel cluttering the screen.",
         );
-        let s = score_pair(&a, &b);
         assert!(
-            s >= CANDIDATE_THRESHOLD,
-            "cross-language pair with similar body should fire, got {s}"
+            candidate_score(&a, &b).is_some(),
+            "cross-language pair with similar body should fire"
         );
     }
 
@@ -621,11 +646,8 @@ mod tests {
     }
 
     #[test]
-    fn score_high_when_title_matches_even_if_slugs_differ() {
+    fn fires_when_title_matches_even_if_slugs_differ() {
         // slug language drift: same concept, different scripts.
-        // (Cross-language slugs alone won't fuzzy-match — we depend on
-        //  the user keeping `title` consistent if they want lint to
-        //  catch this. v0.2 will use embeddings.)
         let a = index_scan::TopicEntry {
             slug: "atomic-write".into(),
             kind: "concepts".into(),
@@ -638,8 +660,7 @@ mod tests {
             title: "Atomic Write".into(), // identical title
             summary: String::new(),
         };
-        let s = score_pair(&a, &b);
-        assert!(s >= CANDIDATE_THRESHOLD);
+        assert!(candidate_score(&a, &b).is_some());
     }
 
     #[test]
