@@ -24,6 +24,10 @@ pub const BUNDLED_LINT_TOML: &str = include_str!("../../prompts/lint.toml");
 /// to classify each topic page as durable / episode / noise.
 pub const BUNDLED_AUDIT_TOML: &str = include_str!("../../prompts/audit.toml");
 
+/// Compiled-in copy of `prompts/rewrite.toml`. Used by
+/// `alluvium rewrite` to reframe episodic-prose topic pages.
+pub const BUNDLED_REWRITE_TOML: &str = include_str!("../../prompts/rewrite.toml");
+
 /// Compiled-in recipe files.
 pub const BUNDLED_RECIPES: &[(&str, &str)] = &[
     (
@@ -107,6 +111,7 @@ pub fn install_bundled_prompts(prompts_dir: &std::path::Path) -> Result<()> {
     )?;
     write_if_absent_or_unchanged(&prompts_dir.join("lint.toml"), BUNDLED_LINT_TOML)?;
     write_if_absent_or_unchanged(&prompts_dir.join("audit.toml"), BUNDLED_AUDIT_TOML)?;
+    write_if_absent_or_unchanged(&prompts_dir.join("rewrite.toml"), BUNDLED_REWRITE_TOML)?;
     for (name, content) in BUNDLED_RECIPES {
         write_if_absent_or_unchanged(&recipes_dir.join(format!("{name}.toml")), content)?;
     }

@@ -11,6 +11,7 @@ pub mod paths;
 pub mod pre_compact;
 pub mod reindex;
 pub mod replay;
+pub mod rewrite;
 pub mod session_end;
 pub mod session_start;
 pub mod status;

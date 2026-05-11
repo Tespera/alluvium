@@ -83,6 +83,22 @@ enum Command {
     /// or when `index.md` has drifted out of sync.
     Reindex,
 
+    /// Rewrite a topic page (or all pages) from episodic to timeless
+    /// framing. Operates on the alluvium:fact block(s) inside the page;
+    /// frontmatter and content outside markers are preserved.
+    Rewrite {
+        /// Topic page slug. Mutually exclusive with `--all`.
+        slug: Option<String>,
+
+        /// Rewrite every page in the wiki. Mutually exclusive with `slug`.
+        #[arg(long)]
+        all: bool,
+
+        /// Actually write changes. Default is dry-run.
+        #[arg(long)]
+        apply: bool,
+    },
+
     /// Audit each topic page: keep / move-to-log / delete.
     ///
     /// The cleanup partner to the distill-stage episode filter. Distill
@@ -148,6 +164,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Consolidate { slug } => alluvium::cli::consolidate::run(&slug).await,
         Command::Reindex => alluvium::cli::reindex::run().await,
         Command::Audit { apply } => alluvium::cli::audit::run(apply).await,
+        Command::Rewrite { slug, all, apply } => {
+            alluvium::cli::rewrite::run(slug.as_deref(), all, apply).await
+        }
         Command::Lint { apply } => alluvium::cli::lint::run(apply).await,
         Command::SessionStart => alluvium::cli::session_start::run().await,
         Command::PreCompact => alluvium::cli::pre_compact::run().await,

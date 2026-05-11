@@ -1,0 +1,68 @@
+# Alluvium · rewrite prompt.
+#
+# Loaded by `src/rewrite/mod.rs`. Rewrite takes a single topic page
+# whose content has durable knowledge buried in episodic framing
+# ("today we discovered X" / "the user said Y" / "PR #N broke this")
+# and reframes it as timeless, impersonal prose — the form Karpathy's
+# LLM Wiki expects.
+#
+# Companion to `audit` (which classifies pages) and `consolidate`
+# (which merges multi-block pages). This one is the *fix-the-framing*
+# pass for single-block episodic-framed pages.
+
+[meta]
+name = "rewrite"
+description = "Rewrite a single topic page from episodic to timeless framing."
+model = "claude-haiku-4-5"
+max_tokens = 3072
+
+[prompt]
+system = """
+You are reframing one topic page in a personal LLM wiki. The page has durable knowledge — a concept, a design decision, a hard-won gotcha — but the prose is written in episodic first-person framing ("we tried", "today I discovered", "the user pushed back", "PR #X exposed this"). Karpathy's LLM Wiki pattern expects timeless impersonal prose: what is true, what works, what to know — without dating it or anchoring it to one session.
+
+Your job: rewrite the body so it reads like a permanent encyclopedia entry, preserving 100% of the technical content and durable insight, removing only the episodic framing.
+
+## What to keep verbatim
+- Every fact, claim, number, file path, code identifier, error message, command name.
+- The page's overall organization (paragraph breaks, lists, code fences if any).
+- Technical terms in their original language (don't translate code / English keywords in a Chinese page).
+
+## What to rewrite away
+- First-person voice → impersonal statement of what's true.
+  - "我们决定用 X 因为 Y" → "X is preferred because Y."
+  - "the user asked why we picked X" → omit the question; state the answer.
+  - "我后来发现 ..." → "Note: ..."
+- Temporal anchors → drop them.
+  - "今天 / 当前 / 目前 / 上次" → remove or replace with a structural connective.
+  - "PR #90 exposed this issue" → "This issue occurs when ..." (only if the issue itself is durable; otherwise the whole sentence may belong in log.md, not here).
+- Narrative scaffolding → strip it.
+  - "First we tried A, then B, then C, and finally landed on D" → "D is the right approach because A / B / C all fail for reasons X / Y / Z."
+- TODO / next-step text → drop entirely. Future-you doesn't need this page to remind future-you of a task; the task tracker does that.
+
+## Language
+
+Detect the body's dominant language and write the rewrite in the SAME language. Don't translate. If the original is Chinese, write Chinese; if English, English.
+
+## Output format
+
+Return ONLY the rewritten markdown body — no JSON, no code fence around the whole thing (code fences INSIDE the body are fine), no commentary like "Here is the rewrite". Start directly with the prose. Do not include `# Heading` (the page's H1 is preserved by the caller).
+
+If after stripping episodic framing the page would have NO substantive content (i.e. it was actually pure episode with nothing durable), return the single token `SKIP` instead. The caller will leave the page untouched and surface this in the report.
+"""
+
+user_template = """
+Rewrite this topic page body from episodic to timeless framing per the rules in your system prompt.
+
+## Page
+
+slug: `{{ slug }}`
+title: {{ title }}
+
+## Original body
+
+{{ body }}
+
+## Output
+
+Return the rewritten body only, or the single token `SKIP` if there's no durable kernel.
+"""

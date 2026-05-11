@@ -25,6 +25,7 @@ pub mod extraction;
 pub mod hook;
 pub mod lint;
 pub mod log;
+pub mod rewrite;
 pub mod transcript;
 pub mod vault;
 pub mod wiki;
