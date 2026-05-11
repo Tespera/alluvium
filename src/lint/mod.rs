@@ -239,6 +239,22 @@ pub async fn run_lint(
         });
     }
 
+    // After applying merges, the in-vault `wiki/index.md` is stale — it
+    // still lists every loser page that lint just deleted. Regenerate
+    // it from the (post-merge) on-disk topic set so the user's Obsidian
+    // graph view matches reality. Best-effort: a failure here doesn't
+    // void the merges, just leaves index.md to drift until the next
+    // archive run regenerates it anyway.
+    let any_applied = rows.iter().any(|r| r.applied);
+    if apply && any_applied {
+        if let Err(err) = crate::vault::index_updater::update(alluvium_root) {
+            tracing::warn!(
+                error = %format!("{err:#}"),
+                "lint: post-merge index.md regen failed; will self-heal on next archive"
+            );
+        }
+    }
+
     Ok(LintReport { rows })
 }
 

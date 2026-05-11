@@ -8,6 +8,7 @@ pub mod init;
 pub mod lint;
 pub mod paths;
 pub mod pre_compact;
+pub mod reindex;
 pub mod replay;
 pub mod session_end;
 pub mod session_start;

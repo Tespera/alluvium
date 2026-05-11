@@ -78,6 +78,11 @@ enum Command {
         slug: String,
     },
 
+    /// Regenerate `wiki/index.md` from the current on-disk topic set.
+    /// No LLM calls. Useful after hand-editing the vault in Obsidian
+    /// or when `index.md` has drifted out of sync.
+    Reindex,
+
     /// Health-check the wiki: find near-duplicate topic pages and ask
     /// the LLM whether they should be merged.
     ///
@@ -128,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Status => alluvium::cli::status::run().await,
         Command::DryRun => alluvium::cli::dry_run::run().await,
         Command::Consolidate { slug } => alluvium::cli::consolidate::run(&slug).await,
+        Command::Reindex => alluvium::cli::reindex::run().await,
         Command::Lint { apply } => alluvium::cli::lint::run(apply).await,
         Command::SessionStart => alluvium::cli::session_start::run().await,
         Command::PreCompact => alluvium::cli::pre_compact::run().await,
