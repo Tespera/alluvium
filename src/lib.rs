@@ -16,6 +16,7 @@
 //! - [`consolidate`] · LLM-driven topic-page rewrites
 //! - [`log`]         · per-archive audit trail
 
+pub mod audit;
 pub mod cli;
 pub mod config;
 pub mod consolidate;

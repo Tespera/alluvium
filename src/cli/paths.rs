@@ -20,6 +20,10 @@ pub const BUNDLED_CONSOLIDATE_TOML: &str = include_str!("../../prompts/consolida
 /// decide MERGE vs KEEP for near-duplicate topic-page pairs.
 pub const BUNDLED_LINT_TOML: &str = include_str!("../../prompts/lint.toml");
 
+/// Compiled-in copy of `prompts/audit.toml`. Used by `alluvium audit`
+/// to classify each topic page as durable / episode / noise.
+pub const BUNDLED_AUDIT_TOML: &str = include_str!("../../prompts/audit.toml");
+
 /// Compiled-in recipe files.
 pub const BUNDLED_RECIPES: &[(&str, &str)] = &[
     (
@@ -102,6 +106,7 @@ pub fn install_bundled_prompts(prompts_dir: &std::path::Path) -> Result<()> {
         BUNDLED_CONSOLIDATE_TOML,
     )?;
     write_if_absent_or_unchanged(&prompts_dir.join("lint.toml"), BUNDLED_LINT_TOML)?;
+    write_if_absent_or_unchanged(&prompts_dir.join("audit.toml"), BUNDLED_AUDIT_TOML)?;
     for (name, content) in BUNDLED_RECIPES {
         write_if_absent_or_unchanged(&recipes_dir.join(format!("{name}.toml")), content)?;
     }

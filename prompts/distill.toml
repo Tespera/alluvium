@@ -42,6 +42,19 @@ Slug stability matters more than slug aesthetics. A slightly awkward slug that a
 
 ## What to extract — and what NOT to
 
+### The 6-month test (apply to every candidate fact before emitting)
+
+Read your draft fact and ask: **"Will this still be useful to read 6 months from now?"**
+
+- A "concept that explains how X works" → still useful in 6 months. EXTRACT.
+- A "decision with the reasoning behind it" → still useful, will be referenced. EXTRACT.
+- A "gotcha + the lesson it teaches" → still useful, prevents repeat pain. EXTRACT.
+- A "thing we did today" / "current state of project X" / "next steps" → **dead in 6 months. REJECT.**
+
+If a fact fails the 6-month test, do not emit it. **Returning an empty `extracted: []` array is a correct, valuable output when the transcript is mostly episodes.** A bad wiki page costs more than a missing one.
+
+### Type definitions
+
 DO extract (these are durable knowledge):
 
 - **entity**: a specific thing — project, tool, library, person, organization, file/module that warrants its own page. Example: "claude-code", "tokio", "src/distiller/prompt.rs".
@@ -49,15 +62,31 @@ DO extract (these are durable knowledge):
 - **decision**: a choice made with reasoning that future-you will want to revisit. Example: "Use the directories crate because XDG-only paths break on macOS."
 - **gotcha**: a surprising failure or sharp edge with the lesson learned. Example: "$SESSION_ID env var doesn't exist in Claude Code hooks; payload comes via stdin."
 
-DO NOT extract (these are episodes — they belong in log.md, not in the wiki):
+### Few-shot: REJECT examples (do NOT extract these as facts)
 
-- One-time events: "PR #90 was reverted today", "we shipped batch 5", "tests are now passing".
-- Current state snapshots that go stale: "we have 6 batches merged", "the integration branch is at commit X".
-- Personal feelings or session-meta: "this was a long debug session", "user got frustrated".
-- TODOs / next steps: "we should refactor X next week".
-- Quotes of the user/assistant verbatim. Distill into your own prose.
+These all FAILED the 6-month test. Drop them at the distill stage.
 
-When in doubt: **does this still help me 6 months from now?** Yes → extract. No → drop.
+❌ "PR #90 was reverted today; we need to figure out why and reapply" — episode + TODO. Drop. (The actual cause, once found, can later become a separate `gotcha` fact about the underlying issue.)
+
+❌ "Six batches of PRs are now merged into integration/batch-4 but not yet pushed to main" — current state snapshot. Will be stale next week. Drop.
+
+❌ "We discussed several approaches for the deploy panel UI; the user got frustrated and we pivoted" — episode + meta-narrative. Drop. (The actual design *principle* we landed on is a separate `concept` fact, written without referencing the discussion.)
+
+❌ "The user said 'this is wrong, let's redo it' and we restarted the implementation" — verbatim quote + episode. Drop.
+
+❌ "Tests are passing again after I fixed the timeout bug" — current state + episode. Drop. (The *technique* used to fix the bug, if non-obvious, can be a `gotcha` fact written impersonally.)
+
+### Few-shot: EXTRACT examples (do extract these — pure durable knowledge)
+
+✅ `concept` — "Atomic file write idiom: write to tmp, fsync the file, rename, then fsync the parent dir. POSIX guarantees rename atomicity *within one filesystem*, but the parent-dir fsync is what makes the directory entry survive a crash. Without step 4 you can wake up to a temp file and no rename."
+
+✅ `gotcha` — "Claude Code hooks receive the session payload on **stdin**, not via `$SESSION_ID` env var. Looking for env vars will silently fall back to empty strings; tests that mock env-vars instead of piping stdin will pass but the production hook will read nothing."
+
+✅ `decision` — "Use the `directories` crate for cross-platform paths instead of hand-rolling XDG. Reason: XDG-only paths return `~/.config/x` on macOS, which is **wrong** there — macOS apps should write to `~/Library/Application Support/x`. The `directories` crate gets this right per-OS without per-target `#[cfg]` branches."
+
+✅ `entity` — "tokio is the async runtime used throughout Alluvium. Notable: tokio's `Command` does NOT kill child processes on drop by default — set `.kill_on_drop(true)` if you spawn a child that should die when the parent task ends, otherwise you'll leak claude subprocesses during timeout paths."
+
+Notice the pattern: each example is **timeless**, **technical**, and **standalone** (you can read it without knowing what session it came from). None of them say "today", "we", "the user", "PR #X".
 
 ## Output language — match the transcript
 

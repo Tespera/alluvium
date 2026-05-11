@@ -83,6 +83,19 @@ enum Command {
     /// or when `index.md` has drifted out of sync.
     Reindex,
 
+    /// Audit each topic page: keep / move-to-log / delete.
+    ///
+    /// The cleanup partner to the distill-stage episode filter. Distill
+    /// prevents new event-class pages from being written; audit removes
+    /// pre-existing ones that landed before the filter existed. Default
+    /// is dry-run; pass `--apply` to actually rewrite disk.
+    Audit {
+        /// Actually apply the verdicts (move-to-log appends to log.md
+        /// and deletes the page; delete just removes the file).
+        #[arg(long)]
+        apply: bool,
+    },
+
     /// Health-check the wiki: find near-duplicate topic pages and ask
     /// the LLM whether they should be merged.
     ///
@@ -134,6 +147,7 @@ async fn main() -> anyhow::Result<()> {
         Command::DryRun => alluvium::cli::dry_run::run().await,
         Command::Consolidate { slug } => alluvium::cli::consolidate::run(&slug).await,
         Command::Reindex => alluvium::cli::reindex::run().await,
+        Command::Audit { apply } => alluvium::cli::audit::run(apply).await,
         Command::Lint { apply } => alluvium::cli::lint::run(apply).await,
         Command::SessionStart => alluvium::cli::session_start::run().await,
         Command::PreCompact => alluvium::cli::pre_compact::run().await,

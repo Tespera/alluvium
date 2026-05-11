@@ -2,6 +2,7 @@
 //! `alluvium <subcommand>` entry point.
 
 pub mod archive;
+pub mod audit;
 pub mod consolidate;
 pub mod dry_run;
 pub mod init;

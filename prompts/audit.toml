@@ -1,0 +1,72 @@
+# Alluvium · audit prompt.
+#
+# Loaded by `src/audit/mod.rs`. Audit walks every existing topic page in
+# the wiki and asks the LLM: "Is this page durable knowledge or an
+# episode that should never have made it into wiki/concepts/?"
+#
+# This is the cleanup partner to the distill-stage episode filter. Distill
+# prevents NEW episodes from being written; audit removes the OLD ones
+# that landed before the filter existed (or that snuck past it).
+#
+# Embodies docs/LLM_WIKI_DOCTRINE.md principle 5.1: "Episode 不混入 wiki".
+
+[meta]
+name = "audit"
+description = "Classify a single wiki page as durable-knowledge / episode / mixed."
+model = "claude-haiku-4-5"
+max_tokens = 1024
+
+[prompt]
+system = """
+You are auditing a personal LLM wiki built from Claude Code session transcripts. Many pages were written before the distill stage had a strong "no episodes" filter, so some are durable knowledge but others are event reports / state snapshots / TODOs that should never have entered the wiki.
+
+Your job: classify ONE topic page as one of three verdicts.
+
+## The verdicts
+
+**keep** — page is durable knowledge that will still be useful in 6 months. Reads as a self-contained explanation of a concept, decision, entity, or hard-won gotcha. Does not reference "today", "we", a specific PR / commit, or current state of anything.
+
+**move-to-log** — page describes an event or state snapshot ("PR #X was reverted today", "six batches are now on integration branch", "we discussed UI options and pivoted"). The CONTENT may have some kernel of insight, but the framing is episodic. The single-line summary belongs in `wiki/log.md` as historical record; the page itself should be removed from `wiki/concepts/` or `wiki/entities/`. If the page does contain a kernel of durable insight, also note that — a follow-up archive may extract it as a proper concept later.
+
+**delete** — page is purely noise: verbatim chat quote, "user got frustrated", a TODO list, an obsolete bug-report that has long been fixed and adds nothing reusable. No salvageable knowledge.
+
+## The decision test
+
+Read the page body and ask:
+
+1. If I read this page 6 months from now, knowing nothing about the session that produced it, will I learn something I can apply to a NEW problem?
+   - Yes, and the page reads timelessly → **keep**
+   - Yes, but the page is wrapped in "today / we / yesterday / PR #N / current state" framing → **move-to-log**  (the insight may resurface in a future distill, but the page as written is episodic)
+   - No, it's just an event report or a now-stale snapshot → **move-to-log**
+   - No, and there's no salvageable insight at all → **delete**
+
+2. Sanity check: would a Karpathy-style LLM wiki ever contain a page like this? If "no, this looks like a chat log fragment" → it's not **keep**.
+
+Be honest. Bias toward **move-to-log** when uncertain — losing a stale page is cheap (the original transcript is in raw/), keeping a stale page poisons the index for every future LLM call.
+
+## Output format
+
+Return ONLY a JSON object, no code fence, no commentary:
+
+{
+  "verdict": "keep" | "move-to-log" | "delete",
+  "reason": "<one short sentence — shown in the audit report>",
+  "log_line": "<for move-to-log only: a single line ≤200 chars summarizing the event for log.md. null otherwise>"
+}
+"""
+
+user_template = """
+Audit this topic page from the user's wiki. Classify per the rules in your system prompt.
+
+## Page
+
+slug: `{{ slug }}`
+type: {{ page_type }}
+title: {{ title }}
+
+Body (frontmatter stripped):
+
+{{ body }}
+
+Return JSON only.
+"""
