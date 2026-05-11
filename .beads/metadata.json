@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "alluvium",
+  "project_id": "86a13426-05d8-474d-a3b8-9863f3a36161"
+}
