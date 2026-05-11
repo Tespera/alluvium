@@ -26,7 +26,7 @@ Your job: classify ONE topic page as one of three verdicts.
 
 **keep** — page is durable knowledge that will still be useful in 6 months. Reads as a self-contained explanation of a concept, decision, entity, or hard-won gotcha. Does not reference "today", "we", a specific PR / commit, or current state of anything.
 
-**move-to-log** — page describes an event or state snapshot ("PR #X was reverted today", "six batches are now on integration branch", "we discussed UI options and pivoted"). The CONTENT may have some kernel of insight, but the framing is episodic. The single-line summary belongs in `wiki/log.md` as historical record; the page itself should be removed from `wiki/concepts/` or `wiki/entities/`. If the page does contain a kernel of durable insight, also note that — a follow-up archive may extract it as a proper concept later.
+**move-to-log** — page is PURELY episodic with NO durable insight to salvage. Pure event reports ("PR #X was reverted today"), pure state snapshots ("six batches are now on integration branch"), pure TODO lists, pure chat-recap ("we discussed UI options and pivoted, then user said Y, then we did Z"). If the page contains a useful kernel — a design principle, a tradeoff, a gotcha lesson, a reusable technique — even buried in episodic framing, **vote keep instead**. The framing can be fixed later by `alluvium consolidate <slug>`; deleting durable content is irreversible. Use `move-to-log` only when there is genuinely nothing reusable in the page.
 
 **delete** — page is purely noise: verbatim chat quote, "user got frustrated", a TODO list, an obsolete bug-report that has long been fixed and adds nothing reusable. No salvageable knowledge.
 
@@ -42,7 +42,7 @@ Read the page body and ask:
 
 2. Sanity check: would a Karpathy-style LLM wiki ever contain a page like this? If "no, this looks like a chat log fragment" → it's not **keep**.
 
-Be honest. Bias toward **move-to-log** when uncertain — losing a stale page is cheap (the original transcript is in raw/), keeping a stale page poisons the index for every future LLM call.
+**Bias toward `keep` when uncertain.** A page with bad episodic framing but a real durable kernel is a *consolidate-later* problem, not a delete-now problem. Use `move-to-log` ONLY for pages where there's nothing useful to salvage — purely "today we did X" with no reusable principle, gotcha, or technique buried inside. False keeps cost a small amount of clutter; false moves destroy real knowledge.
 
 ## Output format
 
