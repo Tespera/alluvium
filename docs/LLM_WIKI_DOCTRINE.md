@@ -51,7 +51,22 @@ Karpathy 原文：
 
 ---
 
-## 第三原则：Lint 是必备操作，不是 nice-to-have
+## 第三原则：维护工具是必备的，不是 nice-to-have
+
+Karpathy 列举了三种核心操作：Ingest（前面已讲）、Query（不在 Alluvium 范围）、**Lint**。在我们的实现里，"lint" 这个角色被拆成 3 个互补的工具，因为单一 lint 命令同时管不好三种不同的退化模式：
+
+| Karpathy 说的 | Alluvium 工具 | 干什么 |
+|---|---|---|
+| "contradictions between pages / orphan pages" | `alluvium lint [--apply]` | 找近似重复的 topic pair，LLM 决策合并 |
+| "stale claims that newer sources have superseded" + episode 类不该在 wiki | `alluvium audit [--apply]` | 扫每页判 keep / move-to-log / delete |
+| "rewriting fragmented topic pages tighter" | `alluvium rewrite <slug> / --all` | LLM 把 episodic 框架重写成 timeless prose；多 fact-block 用 `alluvium consolidate` |
+
+**三个工具加起来才是 Karpathy 说的完整 lint**。少任何一个都会让 wiki 在一周内退化：
+- 没 `lint`：跨语言/拼写不同的同主题页累积成平行宇宙
+- 没 `audit`：日记式"今天我做了 X"页淹没真知识
+- 没 `rewrite`：真知识被锁死在一次性会话框架里，未来读不出 timeless 教训
+
+
 
 Karpathy 原文：
 
@@ -61,14 +76,7 @@ Karpathy 原文：
 
 **不是 v0.2/v1.0 才做**——只要 ingest 在跑，lint 就必须存在。否则用户 vault 第一周就开始烂。
 
-**Alluvium v0.1 的 lint 形态（最简）**：
-- `alluvium lint` — 扫所有 wiki page，按 (slug-fuzzy + title-fuzzy + body-overlap) 算近似度，超过阈值的成对送 LLM 判断"是否同一 topic"。
-- LLM 给出合并方案的 → 真的合并（保留更短/更权威的 slug，吸收另一份内容）
-- LLM 拒绝合并的 → 跳过
-- 默认是 dry-run；`--apply` 才真动文件
-- 操作前后写 `wiki/log.md` 时间线（"## [date] lint | merged X into Y"）
-
-**v0.2 扩展**：矛盾检测、orphan page 提示、缺失 cross-reference 检测、向量化 dedup。
+**v0.2 扩展**：矛盾检测、orphan page 提示、缺失 cross-reference 检测、向量化 dedup（替代当前 lint 的多轴 Jaccard 启发式）。
 
 ---
 
